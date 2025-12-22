@@ -1,65 +1,75 @@
 //! Benchmarks for option-chain-orderbook library.
 //!
-//! This module provides comprehensive benchmarks for all major components:
-//! - Order book operations (add, cancel, query)
-//! - Order book manager operations
-//! - Greeks calculations and aggregation
-//! - Spread calculation (Avellaneda-Stoikov model)
-//! - Inventory management
-//! - Delta hedging calculations
-//! - Risk controller checks
+//! This module provides comprehensive benchmarks for all order book components:
+//!
+//! - **orderbook_bench**: Single option order book operations
+//! - **strike_bench**: Strike order book and manager operations
+//! - **chain_bench**: Option chain order book and manager operations
+//! - **expiration_bench**: Expiration order book and manager operations
+//! - **underlying_bench**: Underlying order book and manager operations
+//! - **hierarchy_bench**: Full hierarchy traversal and trading scenarios
 
-mod greeks_bench;
-mod hedging_bench;
-mod inventory_bench;
-mod manager_bench;
+mod chain_bench;
+mod expiration_bench;
+mod hierarchy_bench;
 mod orderbook_bench;
-mod risk_bench;
-mod spread_bench;
-mod workflows_bench;
+mod strike_bench;
+mod underlying_bench;
 
 use criterion::{criterion_group, criterion_main};
 
+// OptionOrderBook benchmarks
 criterion_group!(
     orderbook_benches,
     orderbook_bench::orderbook_operations,
     orderbook_bench::orderbook_scaling,
 );
 
+// StrikeOrderBook benchmarks
 criterion_group!(
-    manager_benches,
-    manager_bench::manager_operations,
-    manager_bench::manager_scaling,
+    strike_benches,
+    strike_bench::strike_orderbook_operations,
+    strike_bench::strike_manager_operations,
+    strike_bench::strike_manager_scaling,
 );
 
+// OptionChainOrderBook benchmarks
 criterion_group!(
-    greeks_benches,
-    greeks_bench::greeks_operations,
-    greeks_bench::greeks_aggregation,
+    chain_benches,
+    chain_bench::chain_orderbook_operations,
+    chain_bench::chain_manager_operations,
+    chain_bench::chain_manager_scaling,
 );
 
-criterion_group!(quoting_benches, spread_bench::spread_calculation,);
-
+// ExpirationOrderBook benchmarks
 criterion_group!(
-    inventory_benches,
-    inventory_bench::position_operations,
-    inventory_bench::inventory_manager_operations,
-    inventory_bench::inventory_scaling,
+    expiration_benches,
+    expiration_bench::expiration_orderbook_operations,
+    expiration_bench::expiration_manager_operations,
+    expiration_bench::expiration_manager_scaling,
 );
 
-criterion_group!(hedging_benches, hedging_bench::hedging_operations,);
+// UnderlyingOrderBook benchmarks
+criterion_group!(
+    underlying_benches,
+    underlying_bench::underlying_orderbook_operations,
+    underlying_bench::underlying_manager_operations,
+    underlying_bench::underlying_manager_scaling,
+);
 
-criterion_group!(risk_benches, risk_bench::risk_controller_operations,);
-
-criterion_group!(workflow_benches, workflows_bench::combined_workflows,);
+// Full hierarchy benchmarks
+criterion_group!(
+    hierarchy_benches,
+    hierarchy_bench::hierarchy_operations,
+    hierarchy_bench::trading_scenarios,
+    hierarchy_bench::hierarchy_scaling,
+);
 
 criterion_main!(
     orderbook_benches,
-    manager_benches,
-    greeks_benches,
-    quoting_benches,
-    inventory_benches,
-    hedging_benches,
-    risk_benches,
-    workflow_benches,
+    strike_benches,
+    chain_benches,
+    expiration_benches,
+    underlying_benches,
+    hierarchy_benches
 );

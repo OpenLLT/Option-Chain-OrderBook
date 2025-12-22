@@ -1,0 +1,394 @@
+//! Underlying order book module.
+//!
+//! This module provides the [`UnderlyingOrderBook`] and [`UnderlyingOrderBookManager`]
+//! for managing all underlyings in the system.
+
+use super::expiration::{ExpirationOrderBook, ExpirationOrderBookManager};
+use crate::error::{Error, Result};
+use dashmap::DashMap;
+use optionstratlib::ExpirationDate;
+
+/// Order book for a single underlying asset.
+///
+/// Contains all expirations for a specific underlying.
+///
+/// ## Architecture
+///
+/// ```text
+/// UnderlyingOrderBook (per underlying)
+///   └── ExpirationOrderBookManager
+///         └── ExpirationOrderBook (per expiry)
+///               └── OptionChainOrderBook
+///                     └── StrikeOrderBook (per strike)
+/// ```
+pub struct UnderlyingOrderBook {
+    /// The underlying asset symbol.
+    underlying: String,
+    /// Expiration order book manager.
+    expirations: ExpirationOrderBookManager,
+}
+
+impl UnderlyingOrderBook {
+    /// Creates a new underlying order book.
+    ///
+    /// # Arguments
+    ///
+    /// * `underlying` - The underlying asset symbol (e.g., "BTC")
+    #[must_use]
+    pub fn new(underlying: impl Into<String>) -> Self {
+        let underlying = underlying.into();
+
+        Self {
+            expirations: ExpirationOrderBookManager::new(&underlying),
+            underlying,
+        }
+    }
+
+    /// Returns the underlying asset symbol.
+    #[must_use]
+    pub fn underlying(&self) -> &str {
+        &self.underlying
+    }
+
+    /// Returns a reference to the expiration manager.
+    #[must_use]
+    pub const fn expirations(&self) -> &ExpirationOrderBookManager {
+        &self.expirations
+    }
+
+    /// Gets or creates an expiration order book, returning a guard for access.
+    pub fn get_or_create_expiration(
+        &self,
+        expiration: ExpirationDate,
+    ) -> dashmap::mapref::one::Ref<'_, ExpirationDate, ExpirationOrderBook> {
+        self.expirations.get_or_create(expiration)
+    }
+
+    /// Gets an expiration order book.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::ExpirationNotFound` if the expiration does not exist.
+    pub fn get_expiration(
+        &self,
+        expiration: &ExpirationDate,
+    ) -> Result<dashmap::mapref::one::Ref<'_, ExpirationDate, ExpirationOrderBook>> {
+        self.expirations.get(expiration)
+    }
+
+    /// Returns the number of expirations.
+    #[must_use]
+    pub fn expiration_count(&self) -> usize {
+        self.expirations.len()
+    }
+
+    /// Returns true if there are no expirations.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.expirations.is_empty()
+    }
+
+    /// Returns the total order count across all expirations.
+    #[must_use]
+    pub fn total_order_count(&self) -> usize {
+        self.expirations.total_order_count()
+    }
+
+    /// Returns the total strike count across all expirations.
+    #[must_use]
+    pub fn total_strike_count(&self) -> usize {
+        self.expirations.total_strike_count()
+    }
+
+    /// Returns statistics about this underlying.
+    #[must_use]
+    pub fn stats(&self) -> UnderlyingStats {
+        UnderlyingStats {
+            underlying: self.underlying.clone(),
+            expiration_count: self.expiration_count(),
+            total_strikes: self.total_strike_count(),
+            total_orders: self.total_order_count(),
+        }
+    }
+}
+
+/// Statistics about an underlying order book.
+#[derive(Debug, Clone)]
+pub struct UnderlyingStats {
+    /// The underlying asset symbol.
+    pub underlying: String,
+    /// Number of expirations.
+    pub expiration_count: usize,
+    /// Total number of strikes.
+    pub total_strikes: usize,
+    /// Total number of orders.
+    pub total_orders: usize,
+}
+
+impl std::fmt::Display for UnderlyingStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: {} expirations, {} strikes, {} orders",
+            self.underlying, self.expiration_count, self.total_strikes, self.total_orders
+        )
+    }
+}
+
+/// Manages underlying order books for all assets.
+///
+/// This is the top-level manager for the entire order book hierarchy.
+/// Uses `DashMap` for thread-safe concurrent access.
+///
+/// ## Architecture
+///
+/// ```text
+/// UnderlyingOrderBookManager (root)
+///   └── UnderlyingOrderBook (per underlying: BTC, ETH, SPX, etc.)
+///         └── ExpirationOrderBookManager
+///               └── ExpirationOrderBook (per expiry)
+///                     └── OptionChainOrderBook
+///                           └── StrikeOrderBook (per strike)
+///                                 ├── OptionOrderBook (call)
+///                                 └── OptionOrderBook (put)
+/// ```
+pub struct UnderlyingOrderBookManager {
+    /// Underlying order books indexed by symbol.
+    underlyings: DashMap<String, UnderlyingOrderBook>,
+}
+
+impl Default for UnderlyingOrderBookManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UnderlyingOrderBookManager {
+    /// Creates a new underlying order book manager.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            underlyings: DashMap::new(),
+        }
+    }
+
+    /// Returns the number of underlyings.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.underlyings.len()
+    }
+
+    /// Returns true if there are no underlyings.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.underlyings.is_empty()
+    }
+
+    /// Gets or creates an underlying order book.
+    pub fn get_or_create(
+        &self,
+        underlying: impl Into<String>,
+    ) -> dashmap::mapref::one::Ref<'_, String, UnderlyingOrderBook> {
+        let underlying = underlying.into();
+        self.underlyings
+            .entry(underlying.clone())
+            .or_insert_with(|| UnderlyingOrderBook::new(underlying))
+            .downgrade()
+    }
+
+    /// Gets an underlying order book.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::UnderlyingNotFound` if the underlying does not exist.
+    pub fn get(
+        &self,
+        underlying: &str,
+    ) -> Result<dashmap::mapref::one::Ref<'_, String, UnderlyingOrderBook>> {
+        self.underlyings
+            .get(underlying)
+            .ok_or_else(|| Error::underlying_not_found(underlying))
+    }
+
+    /// Returns true if an underlying exists.
+    #[must_use]
+    pub fn contains(&self, underlying: &str) -> bool {
+        self.underlyings.contains_key(underlying)
+    }
+
+    /// Removes an underlying order book.
+    pub fn remove(&self, underlying: &str) -> bool {
+        self.underlyings.remove(underlying).is_some()
+    }
+
+    /// Returns all underlying symbols (sorted).
+    pub fn underlying_symbols(&self) -> Vec<String> {
+        let mut symbols: Vec<String> = self.underlyings.iter().map(|e| e.key().clone()).collect();
+        symbols.sort();
+        symbols
+    }
+
+    /// Returns the total order count across all underlyings.
+    #[must_use]
+    pub fn total_order_count(&self) -> usize {
+        self.underlyings
+            .iter()
+            .map(|e| e.value().total_order_count())
+            .sum()
+    }
+
+    /// Returns the total expiration count across all underlyings.
+    #[must_use]
+    pub fn total_expiration_count(&self) -> usize {
+        self.underlyings
+            .iter()
+            .map(|e| e.value().expiration_count())
+            .sum()
+    }
+
+    /// Returns the total strike count across all underlyings.
+    #[must_use]
+    pub fn total_strike_count(&self) -> usize {
+        self.underlyings
+            .iter()
+            .map(|e| e.value().total_strike_count())
+            .sum()
+    }
+
+    /// Returns statistics about the entire order book system.
+    #[must_use]
+    pub fn stats(&self) -> GlobalStats {
+        GlobalStats {
+            underlying_count: self.len(),
+            total_expirations: self.total_expiration_count(),
+            total_strikes: self.total_strike_count(),
+            total_orders: self.total_order_count(),
+        }
+    }
+}
+
+/// Global statistics about the order book system.
+#[derive(Debug, Clone)]
+pub struct GlobalStats {
+    /// Number of underlyings.
+    pub underlying_count: usize,
+    /// Total number of expirations.
+    pub total_expirations: usize,
+    /// Total number of strikes.
+    pub total_strikes: usize,
+    /// Total number of orders.
+    pub total_orders: usize,
+}
+
+impl std::fmt::Display for GlobalStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} underlyings, {} expirations, {} strikes, {} orders",
+            self.underlying_count, self.total_expirations, self.total_strikes, self.total_orders
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use optionstratlib::pos;
+    use orderbook_rs::{OrderId, Side};
+
+    fn test_expiration() -> ExpirationDate {
+        ExpirationDate::Days(pos!(30.0))
+    }
+
+    #[test]
+    fn test_underlying_order_book_creation() {
+        let book = UnderlyingOrderBook::new("BTC");
+
+        assert_eq!(book.underlying(), "BTC");
+        assert!(book.is_empty());
+    }
+
+    #[test]
+    fn test_underlying_order_book_hierarchy() {
+        let book = UnderlyingOrderBook::new("BTC");
+
+        let exp = book.get_or_create_expiration(test_expiration());
+        let strike = exp.get_or_create_strike(50000);
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+
+        assert_eq!(book.expiration_count(), 1);
+        assert_eq!(book.total_strike_count(), 1);
+        assert_eq!(book.total_order_count(), 1);
+    }
+
+    #[test]
+    fn test_underlying_order_book_get_expiration() {
+        let book = UnderlyingOrderBook::new("BTC");
+        let exp_date = test_expiration();
+
+        book.get_or_create_expiration(exp_date);
+
+        let exp = book.get_expiration(&exp_date);
+        assert!(exp.is_ok());
+
+        let missing_exp = ExpirationDate::Days(pos!(90.0));
+        let missing = book.get_expiration(&missing_exp);
+        assert!(missing.is_err());
+    }
+
+    #[test]
+    fn test_underlying_manager_creation() {
+        let manager = UnderlyingOrderBookManager::new();
+
+        assert!(manager.is_empty());
+        assert_eq!(manager.len(), 0);
+    }
+
+    #[test]
+    fn test_underlying_manager_get_or_create() {
+        let manager = UnderlyingOrderBookManager::new();
+
+        manager.get_or_create("BTC");
+        manager.get_or_create("ETH");
+        manager.get_or_create("SPX");
+
+        assert_eq!(manager.len(), 3);
+    }
+
+    #[test]
+    fn test_underlying_manager_full_hierarchy() {
+        let manager = UnderlyingOrderBookManager::new();
+        let exp_date = test_expiration();
+
+        // Create BTC chain
+        {
+            let btc = manager.get_or_create("BTC");
+            let exp = btc.get_or_create_expiration(exp_date);
+            let strike = exp.get_or_create_strike(50000);
+            strike
+                .call()
+                .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+                .unwrap();
+            strike
+                .put()
+                .add_limit_order(OrderId::new(), Side::Sell, 50, 5)
+                .unwrap();
+        }
+
+        // Create ETH chain
+        {
+            let eth = manager.get_or_create("ETH");
+            let exp = eth.get_or_create_expiration(exp_date);
+            exp.get_or_create_strike(3000);
+        }
+
+        let stats = manager.stats();
+        assert_eq!(stats.underlying_count, 2);
+        assert_eq!(stats.total_expirations, 2);
+        assert_eq!(stats.total_strikes, 2);
+        assert_eq!(stats.total_orders, 2);
+    }
+}

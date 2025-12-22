@@ -2,15 +2,10 @@
 //!
 //! This module provides the [`OptionOrderBook`] structure that wraps the
 //! OrderBook-rs `OrderBook<T>` implementation with option-specific functionality.
-//!
-//! The `OrderBook` from OrderBook-rs is the core component that handles:
-//! - Lock-free bid/ask price level management using SkipMap
-//! - Order matching with price-time priority
-//! - Multiple order types (limit, iceberg, post-only, etc.)
-//! - Market metrics (VWAP, spread, imbalance, etc.)
 
 use super::quote::Quote;
 use crate::Result;
+use optionstratlib::OptionStyle;
 use orderbook_rs::{DefaultOrderBook, OrderBookSnapshot, OrderId, Side, TimeInForce};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -25,11 +20,14 @@ use std::hash::{Hash, Hasher};
 ///
 /// This struct sits at the bottom of the option chain hierarchy:
 /// ```text
-/// OptionChainManager
-///   └── ExpirationManager (per expiry)
-///         └── StrikeManager (per strike)
-///               └── OptionOrderBook (per call/put) ← This struct
-///                     └── OrderBook<T> (from OrderBook-rs)
+/// UnderlyingOrderBookManager
+///   └── UnderlyingOrderBook
+///         └── ExpirationOrderBookManager
+///               └── ExpirationOrderBook
+///                     └── OptionChainOrderBook
+///                           └── StrikeOrderBook
+///                                 └── OptionOrderBook ← This struct
+///                                       └── OrderBook<T> (from OrderBook-rs)
 /// ```
 pub struct OptionOrderBook {
     /// The option contract symbol.
@@ -37,10 +35,11 @@ pub struct OptionOrderBook {
     /// Hash of the symbol for efficient comparison.
     symbol_hash: u64,
     /// The underlying order book from OrderBook-rs.
-    /// Uses u64 for prices (smallest price units).
     book: DefaultOrderBook,
     /// Last known quote for change detection.
     last_quote: Quote,
+    /// The option style (Call or Put).
+    option_style: OptionStyle,
 }
 
 impl OptionOrderBook {
@@ -49,12 +48,9 @@ impl OptionOrderBook {
     /// # Arguments
     ///
     /// * `symbol` - The option contract symbol (e.g., "BTC-20240329-50000-C")
-    ///
-    /// # Returns
-    ///
-    /// A new `OptionOrderBook` instance with an empty order book.
+    /// * `option_style` - The option style (Call or Put)
     #[must_use]
-    pub fn new(symbol: impl Into<String>) -> Self {
+    pub fn new(symbol: impl Into<String>, option_style: OptionStyle) -> Self {
         let symbol = symbol.into();
         let symbol_hash = Self::hash_symbol(&symbol);
 
@@ -63,7 +59,14 @@ impl OptionOrderBook {
             symbol_hash,
             book: DefaultOrderBook::new(&symbol),
             last_quote: Quote::empty(0),
+            option_style,
         }
+    }
+
+    /// Returns the option style (Call or Put).
+    #[must_use]
+    pub const fn option_style(&self) -> OptionStyle {
+        self.option_style
     }
 
     /// Computes a hash for the symbol.
@@ -104,10 +107,6 @@ impl OptionOrderBook {
     /// * `side` - Buy or Sell side
     /// * `price` - Limit price in smallest units (u64)
     /// * `quantity` - Order quantity in smallest units (u64)
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if the order was added successfully.
     pub fn add_limit_order(
         &self,
         order_id: OrderId,
@@ -161,10 +160,6 @@ impl OptionOrderBook {
     }
 
     /// Returns the current best quote.
-    ///
-    /// # Returns
-    ///
-    /// A `Quote` with the best bid and ask prices and sizes.
     #[must_use]
     pub fn best_quote(&self) -> Quote {
         let timestamp_ms = orderbook_rs::current_time_millis();
@@ -260,7 +255,7 @@ impl OptionOrderBook {
         self.book.best_bid().is_none() && self.book.best_ask().is_none()
     }
 
-    /// Clears all orders from the book by restoring from an empty snapshot.
+    /// Clears all orders from the book.
     pub fn clear(&self) {
         let empty_snapshot = OrderBookSnapshot {
             symbol: self.symbol.clone(),
@@ -342,16 +337,17 @@ mod tests {
 
     #[test]
     fn test_option_order_book_creation() {
-        let book = OptionOrderBook::new("BTC-20240329-50000-C");
+        let book = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
 
         assert_eq!(book.symbol(), "BTC-20240329-50000-C");
+        assert_eq!(book.option_style(), OptionStyle::Call);
         assert!(book.is_empty());
         assert_eq!(book.order_count(), 0);
     }
 
     #[test]
     fn test_add_limit_orders() {
-        let book = OptionOrderBook::new("BTC-20240329-50000-C");
+        let book = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
 
         book.add_limit_order(OrderId::new(), Side::Buy, 100, 10)
             .unwrap();
@@ -365,7 +361,7 @@ mod tests {
 
     #[test]
     fn test_best_quote() {
-        let book = OptionOrderBook::new("BTC-20240329-50000-C");
+        let book = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
 
         book.add_limit_order(OrderId::new(), Side::Buy, 100, 10)
             .unwrap();
@@ -383,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_mid_price_and_spread() {
-        let book = OptionOrderBook::new("BTC-20240329-50000-C");
+        let book = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
 
         book.add_limit_order(OrderId::new(), Side::Buy, 100, 10)
             .unwrap();
@@ -396,7 +392,7 @@ mod tests {
 
     #[test]
     fn test_cancel_order() {
-        let book = OptionOrderBook::new("BTC-20240329-50000-C");
+        let book = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
 
         let order_id = OrderId::new();
         book.add_limit_order(order_id, Side::Buy, 100, 10).unwrap();
@@ -409,7 +405,7 @@ mod tests {
 
     #[test]
     fn test_total_depth() {
-        let book = OptionOrderBook::new("BTC-20240329-50000-C");
+        let book = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
 
         book.add_limit_order(OrderId::new(), Side::Buy, 100, 10)
             .unwrap();
@@ -423,61 +419,18 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_quote() {
-        let book = OptionOrderBook::new("BTC-20240329-50000-C");
-        let quote = book.best_quote();
-
-        assert!(quote.bid_price().is_none());
-        assert!(quote.ask_price().is_none());
-        assert!(quote.is_empty());
-        assert!(quote.mid_price().is_none());
-    }
-
-    #[test]
-    fn test_update_last_quote() {
-        let mut book = OptionOrderBook::new("BTC-20240329-50000-C");
-
-        // First update - timestamp changes so it's considered a change
-        let _ = book.update_last_quote();
-
-        // Add order and update
-        book.add_limit_order(OrderId::new(), Side::Buy, 100, 10)
-            .unwrap();
-        let changed = book.update_last_quote();
-        assert!(changed); // Price changed
-
-        // Verify last quote has the bid
-        assert_eq!(book.last_quote().bid_price(), Some(100));
-    }
-
-    #[test]
     fn test_symbol_hash() {
-        let book1 = OptionOrderBook::new("BTC-20240329-50000-C");
-        let book2 = OptionOrderBook::new("BTC-20240329-50000-C");
-        let book3 = OptionOrderBook::new("BTC-20240329-50000-P");
+        let book1 = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
+        let book2 = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
+        let book3 = OptionOrderBook::new("BTC-20240329-50000-P", OptionStyle::Put);
 
         assert_eq!(book1.symbol_hash(), book2.symbol_hash());
         assert_ne!(book1.symbol_hash(), book3.symbol_hash());
     }
 
     #[test]
-    fn test_vwap() {
-        let book = OptionOrderBook::new("BTC-20240329-50000-C");
-
-        book.add_limit_order(OrderId::new(), Side::Sell, 100, 10)
-            .unwrap();
-        book.add_limit_order(OrderId::new(), Side::Sell, 105, 15)
-            .unwrap();
-
-        // VWAP for buying 20 units: (100*10 + 105*10) / 20 = 102.5
-        let vwap = book.vwap(20, Side::Buy);
-        assert!(vwap.is_some());
-        assert!((vwap.unwrap() - 102.5).abs() < 0.01);
-    }
-
-    #[test]
     fn test_imbalance() {
-        let book = OptionOrderBook::new("BTC-20240329-50000-C");
+        let book = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
 
         book.add_limit_order(OrderId::new(), Side::Buy, 100, 60)
             .unwrap();

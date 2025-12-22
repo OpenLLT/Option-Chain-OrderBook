@@ -1,40 +1,38 @@
-//! Quote types for option order books.
+//! Quote types for order book.
 //!
-//! This module defines quote structures representing two-sided markets
-//! with bid and ask prices and sizes. Prices and sizes use `u64` to match
-//! the OrderBook-rs interface (representing smallest units).
+//! This module provides the [`Quote`] and [`QuoteUpdate`] types for representing
+//! two-sided markets (bid and ask).
 
 use serde::{Deserialize, Serialize};
 
-/// Represents a two-sided quote with bid and ask.
+/// Represents a two-sided quote (bid and ask).
 ///
-/// A quote captures the best available prices and sizes on both sides
-/// of the market at a given point in time. All prices and sizes are
-/// in smallest units (u64) to match OrderBook-rs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// A quote captures the best bid and ask prices and sizes at a point in time.
+/// Prices are in smallest units (e.g., cents, satoshis) as `u64`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Quote {
-    /// Best bid price in smallest units (highest buy price).
+    /// Best bid price (None if no bids).
     bid_price: Option<u64>,
-    /// Size available at the best bid in smallest units.
+    /// Size available at best bid.
     bid_size: u64,
-    /// Best ask price in smallest units (lowest sell price).
+    /// Best ask price (None if no asks).
     ask_price: Option<u64>,
-    /// Size available at the best ask in smallest units.
+    /// Size available at best ask.
     ask_size: u64,
-    /// Timestamp of the quote in milliseconds since epoch.
+    /// Timestamp in milliseconds.
     timestamp_ms: u64,
 }
 
 impl Quote {
-    /// Creates a new quote with the given bid and ask.
+    /// Creates a new quote with the given values.
     ///
     /// # Arguments
     ///
-    /// * `bid_price` - The best bid price in smallest units (None if no bids)
-    /// * `bid_size` - The size at the best bid in smallest units
-    /// * `ask_price` - The best ask price in smallest units (None if no asks)
-    /// * `ask_size` - The size at the best ask in smallest units
-    /// * `timestamp_ms` - Timestamp in milliseconds since epoch
+    /// * `bid_price` - Best bid price (None if no bids)
+    /// * `bid_size` - Size at best bid
+    /// * `ask_price` - Best ask price (None if no asks)
+    /// * `ask_size` - Size at best ask
+    /// * `timestamp_ms` - Timestamp in milliseconds
     #[must_use]
     pub const fn new(
         bid_price: Option<u64>,
@@ -64,25 +62,25 @@ impl Quote {
         }
     }
 
-    /// Returns the best bid price in smallest units.
+    /// Returns the best bid price.
     #[must_use]
     pub const fn bid_price(&self) -> Option<u64> {
         self.bid_price
     }
 
-    /// Returns the size at the best bid in smallest units.
+    /// Returns the size at best bid.
     #[must_use]
     pub const fn bid_size(&self) -> u64 {
         self.bid_size
     }
 
-    /// Returns the best ask price in smallest units.
+    /// Returns the best ask price.
     #[must_use]
     pub const fn ask_price(&self) -> Option<u64> {
         self.ask_price
     }
 
-    /// Returns the size at the best ask in smallest units.
+    /// Returns the size at best ask.
     #[must_use]
     pub const fn ask_size(&self) -> u64 {
         self.ask_size
@@ -94,21 +92,28 @@ impl Quote {
         self.timestamp_ms
     }
 
-    /// Returns true if both bid and ask prices exist.
+    /// Returns true if the quote has both bid and ask.
     #[must_use]
     pub const fn is_two_sided(&self) -> bool {
         self.bid_price.is_some() && self.ask_price.is_some()
     }
 
-    /// Returns true if no prices exist.
+    /// Returns true if the quote has no prices.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.bid_price.is_none() && self.ask_price.is_none()
     }
 
+    /// Returns the spread if both sides exist.
+    #[must_use]
+    pub fn spread(&self) -> Option<u64> {
+        match (self.bid_price, self.ask_price) {
+            (Some(bid), Some(ask)) if ask >= bid => Some(ask - bid),
+            _ => None,
+        }
+    }
+
     /// Returns the mid price if both sides exist.
-    ///
-    /// The mid price is calculated as `(bid + ask) / 2`.
     #[must_use]
     pub fn mid_price(&self) -> Option<f64> {
         match (self.bid_price, self.ask_price) {
@@ -117,92 +122,43 @@ impl Quote {
         }
     }
 
-    /// Returns the spread if both sides exist.
-    ///
-    /// The spread is calculated as `ask - bid`.
+    /// Returns the spread in basis points relative to mid price.
     #[must_use]
-    pub fn spread(&self) -> Option<u64> {
-        match (self.bid_price, self.ask_price) {
-            (Some(bid), Some(ask)) => Some(ask.saturating_sub(bid)),
+    pub fn spread_bps(&self) -> Option<f64> {
+        match (self.spread(), self.mid_price()) {
+            (Some(spread), Some(mid)) if mid > 0.0 => Some(spread as f64 / mid * 10000.0),
             _ => None,
         }
     }
+}
 
-    /// Returns the spread in basis points if both sides exist.
-    ///
-    /// Calculated as `(spread / mid_price) * 10000`.
-    #[must_use]
-    pub fn spread_bps(&self) -> Option<f64> {
-        let mid = self.mid_price()?;
-        let spread = self.spread()?;
-        if mid == 0.0 {
-            return None;
-        }
-        Some((spread as f64 / mid) * 10000.0)
-    }
-
-    /// Returns true if the quote is valid (ask >= bid if both exist).
-    #[must_use]
-    pub fn is_valid(&self) -> bool {
+impl std::fmt::Display for Quote {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match (self.bid_price, self.ask_price) {
-            (Some(bid), Some(ask)) => ask >= bid,
-            _ => true,
+            (Some(bid), Some(ask)) => {
+                write!(f, "{}@{} / {}@{}", self.bid_size, bid, self.ask_size, ask)
+            }
+            (Some(bid), None) => write!(f, "{}@{} / -", self.bid_size, bid),
+            (None, Some(ask)) => write!(f, "- / {}@{}", self.ask_size, ask),
+            (None, None) => write!(f, "- / -"),
         }
     }
 }
 
-impl Default for Quote {
-    fn default() -> Self {
-        Self::empty(0)
-    }
-}
-
-/// Represents an update to a quote.
-///
-/// Used to track changes in the order book's best bid/ask.
+/// Represents a change in quote.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuoteUpdate {
-    /// The symbol this update is for.
-    symbol_hash: u64,
-    /// Previous quote state.
-    previous: Quote,
-    /// Current quote state.
-    current: Quote,
+    /// Previous quote.
+    pub previous: Quote,
+    /// Current quote.
+    pub current: Quote,
 }
 
 impl QuoteUpdate {
     /// Creates a new quote update.
-    ///
-    /// # Arguments
-    ///
-    /// * `symbol_hash` - Hash of the symbol for efficient comparison
-    /// * `previous` - The previous quote state
-    /// * `current` - The current quote state
     #[must_use]
-    pub const fn new(symbol_hash: u64, previous: Quote, current: Quote) -> Self {
-        Self {
-            symbol_hash,
-            previous,
-            current,
-        }
-    }
-
-    /// Returns the symbol hash.
-    #[must_use]
-    pub const fn symbol_hash(&self) -> u64 {
-        self.symbol_hash
-    }
-
-    /// Returns the previous quote.
-    #[must_use]
-    pub const fn previous(&self) -> &Quote {
-        &self.previous
-    }
-
-    /// Returns the current quote.
-    #[must_use]
-    pub const fn current(&self) -> &Quote {
-        &self.current
+    pub const fn new(previous: Quote, current: Quote) -> Self {
+        Self { previous, current }
     }
 
     /// Returns true if the bid price changed.
@@ -222,34 +178,6 @@ impl QuoteUpdate {
     pub fn price_changed(&self) -> bool {
         self.bid_price_changed() || self.ask_price_changed()
     }
-
-    /// Returns true if the bid size changed.
-    #[must_use]
-    pub fn bid_size_changed(&self) -> bool {
-        self.previous.bid_size != self.current.bid_size
-    }
-
-    /// Returns true if the ask size changed.
-    #[must_use]
-    pub fn ask_size_changed(&self) -> bool {
-        self.previous.ask_size != self.current.ask_size
-    }
-
-    /// Returns the change in mid price if calculable.
-    #[must_use]
-    pub fn mid_price_change(&self) -> Option<f64> {
-        let prev_mid = self.previous.mid_price()?;
-        let curr_mid = self.current.mid_price()?;
-        Some(curr_mid - prev_mid)
-    }
-
-    /// Returns the change in spread if calculable.
-    #[must_use]
-    pub fn spread_change(&self) -> Option<i64> {
-        let prev_spread = self.previous.spread()? as i64;
-        let curr_spread = self.current.spread()? as i64;
-        Some(curr_spread - prev_spread)
-    }
 }
 
 #[cfg(test)]
@@ -258,92 +186,56 @@ mod tests {
 
     #[test]
     fn test_quote_creation() {
-        let quote = Quote::new(Some(100), 10, Some(101), 5, 1000);
+        let quote = Quote::new(Some(100), 10, Some(105), 5, 1234567890);
 
         assert_eq!(quote.bid_price(), Some(100));
         assert_eq!(quote.bid_size(), 10);
-        assert_eq!(quote.ask_price(), Some(101));
+        assert_eq!(quote.ask_price(), Some(105));
         assert_eq!(quote.ask_size(), 5);
-        assert_eq!(quote.timestamp_ms(), 1000);
+        assert!(quote.is_two_sided());
     }
 
     #[test]
-    fn test_empty_quote() {
-        let quote = Quote::empty(1000);
+    fn test_quote_empty() {
+        let quote = Quote::empty(0);
 
-        assert!(quote.bid_price().is_none());
-        assert!(quote.ask_price().is_none());
         assert!(quote.is_empty());
         assert!(!quote.is_two_sided());
+        assert!(quote.spread().is_none());
+        assert!(quote.mid_price().is_none());
     }
 
     #[test]
-    fn test_mid_price() {
-        let quote = Quote::new(Some(100), 10, Some(102), 5, 1000);
+    fn test_quote_spread() {
+        let quote = Quote::new(Some(100), 10, Some(105), 5, 0);
 
-        assert_eq!(quote.mid_price(), Some(101.0));
+        assert_eq!(quote.spread(), Some(5));
+        assert!((quote.mid_price().unwrap() - 102.5).abs() < 0.01);
     }
 
     #[test]
-    fn test_spread() {
-        let quote = Quote::new(Some(100), 10, Some(102), 5, 1000);
+    fn test_quote_display() {
+        let quote = Quote::new(Some(100), 10, Some(105), 5, 0);
+        assert_eq!(format!("{}", quote), "10@100 / 5@105");
 
-        assert_eq!(quote.spread(), Some(2));
-    }
+        let bid_only = Quote::new(Some(100), 10, None, 0, 0);
+        assert_eq!(format!("{}", bid_only), "10@100 / -");
 
-    #[test]
-    fn test_spread_bps() {
-        let quote = Quote::new(Some(100), 10, Some(101), 5, 1000);
+        let ask_only = Quote::new(None, 0, Some(105), 5, 0);
+        assert_eq!(format!("{}", ask_only), "- / 5@105");
 
-        // spread = 1, mid = 100.5, bps = (1/100.5) * 10000 ≈ 99.50
-        let bps = quote.spread_bps().unwrap();
-        assert!(bps > 99.0 && bps < 100.0);
-    }
-
-    #[test]
-    fn test_quote_validity() {
-        let valid = Quote::new(Some(100), 10, Some(101), 5, 1000);
-        assert!(valid.is_valid());
-
-        let invalid = Quote::new(Some(101), 10, Some(100), 5, 1000);
-        assert!(!invalid.is_valid());
-
-        let one_sided = Quote::new(Some(100), 10, None, 0, 1000);
-        assert!(one_sided.is_valid());
+        let empty = Quote::empty(0);
+        assert_eq!(format!("{}", empty), "- / -");
     }
 
     #[test]
     fn test_quote_update() {
-        let prev = Quote::new(Some(100), 10, Some(101), 5, 1000);
-        let curr = Quote::new(Some(100), 15, Some(102), 5, 1001);
+        let prev = Quote::new(Some(100), 10, Some(105), 5, 0);
+        let curr = Quote::new(Some(101), 10, Some(105), 5, 1);
+        let update = QuoteUpdate::new(prev, curr);
 
-        let update = QuoteUpdate::new(12345, prev, curr);
-
-        assert!(!update.bid_price_changed());
-        assert!(update.ask_price_changed());
-        assert!(update.bid_size_changed());
-        assert!(!update.ask_size_changed());
+        assert!(update.bid_price_changed());
+        assert!(!update.ask_price_changed());
         assert!(update.price_changed());
-    }
-
-    #[test]
-    fn test_mid_price_change() {
-        let prev = Quote::new(Some(100), 10, Some(102), 5, 1000);
-        let curr = Quote::new(Some(101), 10, Some(103), 5, 1001);
-
-        let update = QuoteUpdate::new(12345, prev, curr);
-
-        // prev mid = 101, curr mid = 102
-        assert_eq!(update.mid_price_change(), Some(1.0));
-    }
-
-    #[test]
-    fn test_quote_serialization() {
-        let quote = Quote::new(Some(100), 10, Some(101), 5, 1000);
-
-        let json = serde_json::to_string(&quote).unwrap();
-        let deserialized: Quote = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(quote, deserialized);
     }
 }

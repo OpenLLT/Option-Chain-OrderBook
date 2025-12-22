@@ -1,6 +1,6 @@
 [package]
 name = "option-chain-orderbook"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 authors = ["Joaquin Bejar <jb@taunais.com>"]
 description = "A high-performance Rust library for options market making infrastructure, providing a complete Option Chain Order Book system built on top of OrderBook-rs, PriceLevel, and OptionStratLib."
@@ -35,6 +35,7 @@ chrono = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 async-trait = { workspace = true }
+dashmap = "6"
 
 [features]
 default = []

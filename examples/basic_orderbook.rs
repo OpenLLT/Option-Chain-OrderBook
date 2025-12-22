@@ -10,6 +10,7 @@
 //! Run with: `cargo run --example basic_orderbook`
 
 use option_chain_orderbook::orderbook::OptionOrderBook;
+use optionstratlib::OptionStyle;
 use orderbook_rs::{OrderId, Side};
 use tracing::info;
 
@@ -22,7 +23,7 @@ fn main() {
 
     // Create an order book for a BTC call option
     // Symbol format: UNDERLYING-EXPIRY-STRIKE-TYPE
-    let book = OptionOrderBook::new("BTC-20240329-50000-C");
+    let book = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
     info!("Created order book for: {}", book.symbol());
 
     // Add some buy orders (bids)
@@ -59,8 +60,8 @@ fn main() {
     // Get the best quote (top of book)
     info!("--- Best Quote ---");
     let quote = book.best_quote();
-    info!("Best bid: {:?} @ {:?}", quote.bid_size(), quote.bid_price());
-    info!("Best ask: {:?} @ {:?}", quote.ask_size(), quote.ask_price());
+    info!("Best bid: {} @ {:?}", quote.bid_size(), quote.bid_price());
+    info!("Best ask: {} @ {:?}", quote.ask_size(), quote.ask_price());
     info!("Spread: {:?}", quote.spread());
     info!("Is two-sided: {}", quote.is_two_sided());
 
@@ -95,8 +96,8 @@ fn main() {
     // Check the quote after cancellation
     info!("--- Quote After Cancellation ---");
     let quote = book.best_quote();
-    info!("Best bid: {:?} @ {:?}", quote.bid_size(), quote.bid_price());
-    info!("Best ask: {:?} @ {:?}", quote.ask_size(), quote.ask_price());
+    info!("Best bid: {} @ {:?}", quote.bid_size(), quote.bid_price());
+    info!("Best ask: {} @ {:?}", quote.ask_size(), quote.ask_price());
 
     // Demonstrate order book statistics
     info!("--- Order Book Statistics ---");

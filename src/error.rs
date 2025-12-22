@@ -6,6 +6,9 @@
 use rust_decimal::Decimal;
 use thiserror::Error;
 
+/// Result type alias using the library's error type.
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Main error type for the Option-Chain-OrderBook library.
 #[derive(Error, Debug)]
 pub enum Error {
@@ -27,7 +30,21 @@ pub enum Error {
     #[error("strike not found: {strike}")]
     StrikeNotFound {
         /// The strike price that was not found.
-        strike: Decimal,
+        strike: u64,
+    },
+
+    /// Error when an underlying is not found.
+    #[error("underlying not found: {underlying}")]
+    UnderlyingNotFound {
+        /// The underlying that was not found.
+        underlying: String,
+    },
+
+    /// Error when no data is available.
+    #[error("no data available: {message}")]
+    NoDataAvailable {
+        /// Description of what data is missing.
+        message: String,
     },
 
     /// Error when an order book operation fails.
@@ -125,6 +142,10 @@ pub enum Error {
         /// Description of the decimal error.
         message: String,
     },
+
+    /// Error from optionstratlib decimal operations.
+    #[error("optionstratlib decimal error: {0}")]
+    OptionStratLibDecimal(#[from] optionstratlib::error::decimal::DecimalError),
 }
 
 impl Error {
@@ -146,8 +167,24 @@ impl Error {
 
     /// Creates a new strike not found error.
     #[must_use]
-    pub fn strike_not_found(strike: Decimal) -> Self {
+    pub fn strike_not_found(strike: u64) -> Self {
         Self::StrikeNotFound { strike }
+    }
+
+    /// Creates a new underlying not found error.
+    #[must_use]
+    pub fn underlying_not_found(underlying: impl Into<String>) -> Self {
+        Self::UnderlyingNotFound {
+            underlying: underlying.into(),
+        }
+    }
+
+    /// Creates a new no data available error.
+    #[must_use]
+    pub fn no_data(message: impl Into<String>) -> Self {
+        Self::NoDataAvailable {
+            message: message.into(),
+        }
     }
 
     /// Creates a new order book error.

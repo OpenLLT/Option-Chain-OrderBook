@@ -1,29 +1,65 @@
 //! Order book integration module.
 //!
-//! This module provides integration with OrderBook-rs for managing order books
-//! per option contract. It wraps the high-performance order book implementation
-//! and provides option-specific functionality.
+//! This module provides a hierarchical order book structure for options trading:
+//!
+//! ## Hierarchy
+//!
+//! ```text
+//! UnderlyingOrderBookManager (manages all underlyings: BTC, ETH, SPX, etc.)
+//!   └── UnderlyingOrderBook (per underlying, all expirations for one asset)
+//!         └── ExpirationOrderBookManager (manages all expirations for underlying)
+//!               └── ExpirationOrderBook (per expiry date)
+//!                     └── OptionChainOrderBook (per expiration, option chain of all strikes)
+//!                           └── StrikeOrderBookManager (manages call/put pair)
+//!                                 └── StrikeOrderBook (per strike price, two OptionOrderBook)
+//!                                       └── OptionOrderBook (call or put)
+//!                                             └── OrderBook<T> (from OrderBook-rs)
+//! ```
 //!
 //! ## Components
 //!
-//! - [`OptionOrderBook`]: Order book wrapper for a single option contract
-//! - [`OptionOrderBookManager`]: Manages order books across the entire option chain
+//! - [`UnderlyingOrderBookManager`]: Top-level manager for all underlyings
+//! - [`UnderlyingOrderBook`]: All expirations for a single underlying
+//! - [`ExpirationOrderBookManager`]: Manages expirations for an underlying
+//! - [`ExpirationOrderBook`]: All strikes for a single expiration
+//! - [`OptionChainOrderBook`]: Option chain with strike management
+//! - [`StrikeOrderBookManager`]: Manages strikes for an expiration
+//! - [`StrikeOrderBook`]: Call/put pair at a strike price
+//! - [`OptionOrderBook`]: Single option order book (call or put)
 //! - [`Quote`]: Represents a two-sided quote (bid and ask)
 //!
 //! ## Example
 //!
 //! ```rust,ignore
-//! use option_chain_orderbook::orderbook::{OptionOrderBook, Quote};
+//! use option_chain_orderbook::orderbook::UnderlyingOrderBookManager;
 //!
-//! let mut book = OptionOrderBook::new("BTC-20240329-50000-C");
-//! book.add_order(order);
-//! let quote = book.best_quote();
+//! let mut manager = UnderlyingOrderBookManager::new();
+//!
+//! // Create BTC option chain
+//! let btc = manager.get_or_create("BTC");
+//! let exp = btc.get_or_create_expiration("20240329");
+//! let strike = exp.get_or_create_strike(50000);
+//!
+//! // Add orders to call
+//! strike.call().add_limit_order(order_id, Side::Buy, 100, 10)?;
+//!
+//! // Get quote
+//! let quote = strike.call().best_quote();
 //! ```
 
 mod book;
-mod manager;
+mod chain;
+mod expiration;
 mod quote;
+mod strike;
+mod underlying;
 
+// Re-export all public types
 pub use book::OptionOrderBook;
-pub use manager::OptionOrderBookManager;
+pub use chain::{OptionChainOrderBook, OptionChainOrderBookManager, OptionChainStats};
+pub use expiration::{ExpirationManagerStats, ExpirationOrderBook, ExpirationOrderBookManager};
 pub use quote::{Quote, QuoteUpdate};
+pub use strike::{StrikeOrderBook, StrikeOrderBookManager};
+pub use underlying::{
+    GlobalStats, UnderlyingOrderBook, UnderlyingOrderBookManager, UnderlyingStats,
+};
