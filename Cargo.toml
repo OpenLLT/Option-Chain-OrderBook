@@ -1,6 +1,6 @@
 [package]
 name = "option-chain-orderbook"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Joaquin Bejar <jb@taunais.com>"]
 description = "A high-performance Rust library for options market making infrastructure, providing a complete Option Chain Order Book system built on top of OrderBook-rs, PriceLevel, and OptionStratLib."
@@ -42,6 +42,7 @@ default = []
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = ["html_reports"] }
 tokio = { version = "1.48", features = ["rt-multi-thread", "macros", "test-util"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[test]]
 name = "tests"
