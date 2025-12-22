@@ -381,4 +381,242 @@ mod tests {
         let manager = StrikeOrderBookManager::new("BTC", test_expiration());
         assert!(manager.atm_strike(50000).is_err());
     }
+
+    #[test]
+    fn test_strike_expiration() {
+        let exp = test_expiration();
+        let strike = StrikeOrderBook::new("BTC", exp, 50000);
+        assert_eq!(*strike.expiration(), exp);
+    }
+
+    #[test]
+    fn test_strike_call_mut() {
+        let mut strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
+        let call_mut = strike.call_mut();
+        call_mut
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        assert_eq!(strike.call().order_count(), 1);
+    }
+
+    #[test]
+    fn test_strike_put_mut() {
+        let mut strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
+        let put_mut = strike.put_mut();
+        put_mut
+            .add_limit_order(OrderId::new(), Side::Buy, 50, 10)
+            .unwrap();
+        assert_eq!(strike.put().order_count(), 1);
+    }
+
+    #[test]
+    fn test_strike_get_by_style() {
+        let strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
+
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        strike
+            .put()
+            .add_limit_order(OrderId::new(), Side::Buy, 50, 5)
+            .unwrap();
+
+        let call = strike.get(OptionStyle::Call);
+        let put = strike.get(OptionStyle::Put);
+
+        assert_eq!(call.order_count(), 1);
+        assert_eq!(put.order_count(), 1);
+    }
+
+    #[test]
+    fn test_strike_get_mut_by_style() {
+        let mut strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
+
+        strike
+            .get_mut(OptionStyle::Call)
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        strike
+            .get_mut(OptionStyle::Put)
+            .add_limit_order(OrderId::new(), Side::Buy, 50, 5)
+            .unwrap();
+
+        assert_eq!(strike.order_count(), 2);
+    }
+
+    #[test]
+    fn test_strike_quotes() {
+        let strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
+
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Sell, 110, 5)
+            .unwrap();
+        strike
+            .put()
+            .add_limit_order(OrderId::new(), Side::Buy, 50, 10)
+            .unwrap();
+        strike
+            .put()
+            .add_limit_order(OrderId::new(), Side::Sell, 60, 5)
+            .unwrap();
+
+        let call_quote = strike.call_quote();
+        let put_quote = strike.put_quote();
+
+        assert!(call_quote.is_two_sided());
+        assert!(put_quote.is_two_sided());
+    }
+
+    #[test]
+    fn test_strike_is_fully_quoted() {
+        let strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
+
+        assert!(!strike.is_fully_quoted());
+
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Sell, 110, 5)
+            .unwrap();
+
+        assert!(!strike.is_fully_quoted());
+
+        strike
+            .put()
+            .add_limit_order(OrderId::new(), Side::Buy, 50, 10)
+            .unwrap();
+        strike
+            .put()
+            .add_limit_order(OrderId::new(), Side::Sell, 60, 5)
+            .unwrap();
+
+        assert!(strike.is_fully_quoted());
+    }
+
+    #[test]
+    fn test_strike_clear() {
+        let strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
+
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        strike
+            .put()
+            .add_limit_order(OrderId::new(), Side::Buy, 50, 5)
+            .unwrap();
+
+        assert_eq!(strike.order_count(), 2);
+        strike.clear();
+        assert!(strike.is_empty());
+    }
+
+    #[test]
+    fn test_strike_greeks() {
+        use optionstratlib::greeks::Greek;
+        use rust_decimal_macros::dec;
+
+        let mut strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
+
+        assert!(strike.call_greeks().is_none());
+        assert!(strike.put_greeks().is_none());
+
+        let call_greeks = Greek {
+            delta: dec!(0.5),
+            gamma: dec!(0.01),
+            theta: dec!(-0.05),
+            vega: dec!(0.2),
+            rho: dec!(0.1),
+            rho_d: dec!(0.0),
+            alpha: dec!(0.0),
+            vanna: dec!(0.0),
+            vomma: dec!(0.0),
+            veta: dec!(0.0),
+            charm: dec!(0.0),
+            color: dec!(0.0),
+        };
+        let put_greeks = Greek {
+            delta: dec!(-0.5),
+            gamma: dec!(0.01),
+            theta: dec!(-0.05),
+            vega: dec!(0.2),
+            rho: dec!(-0.1),
+            rho_d: dec!(0.0),
+            alpha: dec!(0.0),
+            vanna: dec!(0.0),
+            vomma: dec!(0.0),
+            veta: dec!(0.0),
+            charm: dec!(0.0),
+            color: dec!(0.0),
+        };
+
+        strike.update_call_greeks(call_greeks);
+        strike.update_put_greeks(put_greeks);
+
+        assert!(strike.call_greeks().is_some());
+        assert!(strike.put_greeks().is_some());
+    }
+
+    #[test]
+    fn test_strike_manager_get() {
+        let manager = StrikeOrderBookManager::new("BTC", test_expiration());
+
+        manager.get_or_create(50000);
+
+        assert!(manager.get(50000).is_ok());
+        assert!(manager.get(99999).is_err());
+    }
+
+    #[test]
+    fn test_strike_manager_contains() {
+        let manager = StrikeOrderBookManager::new("BTC", test_expiration());
+
+        manager.get_or_create(50000);
+
+        assert!(manager.contains(50000));
+        assert!(!manager.contains(99999));
+    }
+
+    #[test]
+    fn test_strike_manager_remove() {
+        let manager = StrikeOrderBookManager::new("BTC", test_expiration());
+
+        manager.get_or_create(50000);
+        manager.get_or_create(55000);
+
+        assert_eq!(manager.len(), 2);
+        assert!(manager.remove(50000));
+        assert_eq!(manager.len(), 1);
+        assert!(!manager.remove(50000));
+    }
+
+    #[test]
+    fn test_strike_manager_total_order_count() {
+        let manager = StrikeOrderBookManager::new("BTC", test_expiration());
+
+        let strike = manager.get_or_create(50000);
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        drop(strike);
+
+        let strike2 = manager.get_or_create(55000);
+        strike2
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        drop(strike2);
+
+        assert_eq!(manager.total_order_count(), 2);
+    }
 }

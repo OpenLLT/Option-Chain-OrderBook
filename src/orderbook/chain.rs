@@ -322,4 +322,122 @@ mod tests {
 
         assert_eq!(manager.len(), 3);
     }
+
+    #[test]
+    fn test_option_chain_expiration() {
+        let exp = test_expiration();
+        let chain = OptionChainOrderBook::new("BTC", exp);
+        assert_eq!(*chain.expiration(), exp);
+    }
+
+    #[test]
+    fn test_option_chain_strikes_ref() {
+        let chain = OptionChainOrderBook::new("BTC", test_expiration());
+        chain.get_or_create_strike(50000);
+        let strikes = chain.strikes();
+        assert_eq!(strikes.len(), 1);
+    }
+
+    #[test]
+    fn test_option_chain_get_strike() {
+        let chain = OptionChainOrderBook::new("BTC", test_expiration());
+        chain.get_or_create_strike(50000);
+
+        assert!(chain.get_strike(50000).is_ok());
+        assert!(chain.get_strike(99999).is_err());
+    }
+
+    #[test]
+    fn test_option_chain_atm_strike() {
+        let chain = OptionChainOrderBook::new("BTC", test_expiration());
+
+        chain.get_or_create_strike(45000);
+        chain.get_or_create_strike(50000);
+        chain.get_or_create_strike(55000);
+
+        assert_eq!(chain.atm_strike(48000).unwrap(), 50000);
+        assert_eq!(chain.atm_strike(53000).unwrap(), 55000);
+    }
+
+    #[test]
+    fn test_option_chain_atm_strike_empty() {
+        let chain = OptionChainOrderBook::new("BTC", test_expiration());
+        assert!(chain.atm_strike(50000).is_err());
+    }
+
+    #[test]
+    fn test_option_chain_stats_display() {
+        let chain = OptionChainOrderBook::new("BTC", test_expiration());
+        chain.get_or_create_strike(50000);
+
+        let stats = chain.stats();
+        let display = format!("{}", stats);
+        assert!(display.contains("1 strikes"));
+    }
+
+    #[test]
+    fn test_option_chain_manager_underlying() {
+        let manager = OptionChainOrderBookManager::new("BTC");
+        assert_eq!(manager.underlying(), "BTC");
+    }
+
+    #[test]
+    fn test_option_chain_manager_is_empty() {
+        let manager = OptionChainOrderBookManager::new("BTC");
+        assert!(manager.is_empty());
+
+        manager.get_or_create(test_expiration());
+        assert!(!manager.is_empty());
+    }
+
+    #[test]
+    fn test_option_chain_manager_get() {
+        let manager = OptionChainOrderBookManager::new("BTC");
+        let exp = test_expiration();
+
+        manager.get_or_create(exp);
+
+        assert!(manager.get(&exp).is_ok());
+        assert!(manager.get(&ExpirationDate::Days(pos!(999.0))).is_err());
+    }
+
+    #[test]
+    fn test_option_chain_manager_contains() {
+        let manager = OptionChainOrderBookManager::new("BTC");
+        let exp = test_expiration();
+
+        manager.get_or_create(exp);
+
+        assert!(manager.contains(&exp));
+        assert!(!manager.contains(&ExpirationDate::Days(pos!(999.0))));
+    }
+
+    #[test]
+    fn test_option_chain_manager_remove() {
+        let manager = OptionChainOrderBookManager::new("BTC");
+        let exp = test_expiration();
+
+        manager.get_or_create(exp);
+        assert_eq!(manager.len(), 1);
+
+        assert!(manager.remove(&exp));
+        assert_eq!(manager.len(), 0);
+        assert!(!manager.remove(&exp));
+    }
+
+    #[test]
+    fn test_option_chain_manager_total_order_count() {
+        let manager = OptionChainOrderBookManager::new("BTC");
+
+        let chain = manager.get_or_create(test_expiration());
+        let strike = chain.get_or_create_strike(50000);
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        drop(strike);
+        drop(chain);
+
+        assert_eq!(manager.total_order_count(), 1);
+    }
 }

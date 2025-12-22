@@ -391,4 +391,118 @@ mod tests {
         assert_eq!(stats.total_strikes, 2);
         assert_eq!(stats.total_orders, 2);
     }
+
+    #[test]
+    fn test_underlying_order_book_expirations() {
+        let book = UnderlyingOrderBook::new("BTC");
+        book.get_or_create_expiration(test_expiration());
+        let expirations = book.expirations();
+        assert_eq!(expirations.len(), 1);
+    }
+
+    #[test]
+    fn test_underlying_order_book_stats() {
+        let book = UnderlyingOrderBook::new("BTC");
+
+        let exp = book.get_or_create_expiration(test_expiration());
+        let strike = exp.get_or_create_strike(50000);
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        drop(strike);
+        drop(exp);
+
+        let stats = book.stats();
+        assert_eq!(stats.underlying, "BTC");
+        assert_eq!(stats.expiration_count, 1);
+        assert_eq!(stats.total_strikes, 1);
+        assert_eq!(stats.total_orders, 1);
+
+        let display = format!("{}", stats);
+        assert!(display.contains("BTC"));
+    }
+
+    #[test]
+    fn test_underlying_manager_get() {
+        let manager = UnderlyingOrderBookManager::new();
+
+        manager.get_or_create("BTC");
+
+        assert!(manager.get("BTC").is_ok());
+        assert!(manager.get("XRP").is_err());
+    }
+
+    #[test]
+    fn test_underlying_manager_contains() {
+        let manager = UnderlyingOrderBookManager::new();
+
+        manager.get_or_create("BTC");
+
+        assert!(manager.contains("BTC"));
+        assert!(!manager.contains("XRP"));
+    }
+
+    #[test]
+    fn test_underlying_manager_remove() {
+        let manager = UnderlyingOrderBookManager::new();
+
+        manager.get_or_create("BTC");
+        manager.get_or_create("ETH");
+
+        assert_eq!(manager.len(), 2);
+        assert!(manager.remove("BTC"));
+        assert_eq!(manager.len(), 1);
+        assert!(!manager.remove("BTC"));
+    }
+
+    #[test]
+    fn test_underlying_manager_underlying_symbols() {
+        let manager = UnderlyingOrderBookManager::new();
+
+        manager.get_or_create("BTC");
+        manager.get_or_create("ETH");
+        manager.get_or_create("SPX");
+
+        let symbols = manager.underlying_symbols();
+        assert_eq!(symbols.len(), 3);
+        assert!(symbols.contains(&"BTC".to_string()));
+        assert!(symbols.contains(&"ETH".to_string()));
+        assert!(symbols.contains(&"SPX".to_string()));
+    }
+
+    #[test]
+    fn test_underlying_manager_total_order_count() {
+        let manager = UnderlyingOrderBookManager::new();
+
+        let btc = manager.get_or_create("BTC");
+        let exp = btc.get_or_create_expiration(test_expiration());
+        let strike = exp.get_or_create_strike(50000);
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        drop(strike);
+        drop(exp);
+        drop(btc);
+
+        assert_eq!(manager.total_order_count(), 1);
+    }
+
+    #[test]
+    fn test_global_stats_display() {
+        let manager = UnderlyingOrderBookManager::new();
+
+        let btc = manager.get_or_create("BTC");
+        let exp = btc.get_or_create_expiration(test_expiration());
+        exp.get_or_create_strike(50000);
+        drop(exp);
+        drop(btc);
+
+        let stats = manager.stats();
+        let display = format!("{}", stats);
+        assert!(display.contains("1 underlyings"));
+        assert!(display.contains("1 expirations"));
+        assert!(display.contains("1 strikes"));
+    }
 }

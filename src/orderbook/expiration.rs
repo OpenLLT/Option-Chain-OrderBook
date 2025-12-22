@@ -312,4 +312,132 @@ mod tests {
 
         assert_eq!(manager.len(), 3);
     }
+
+    #[test]
+    fn test_expiration_order_book_expiration() {
+        let exp = test_expiration();
+        let book = ExpirationOrderBook::new("BTC", exp);
+        assert_eq!(*book.expiration(), exp);
+    }
+
+    #[test]
+    fn test_expiration_order_book_chain() {
+        let book = ExpirationOrderBook::new("BTC", test_expiration());
+        book.get_or_create_strike(50000);
+        let chain = book.chain();
+        assert_eq!(chain.strike_count(), 1);
+    }
+
+    #[test]
+    fn test_expiration_order_book_get_strike() {
+        let book = ExpirationOrderBook::new("BTC", test_expiration());
+        book.get_or_create_strike(50000);
+
+        assert!(book.get_strike(50000).is_ok());
+        assert!(book.get_strike(99999).is_err());
+    }
+
+    #[test]
+    fn test_expiration_order_book_atm_strike() {
+        let book = ExpirationOrderBook::new("BTC", test_expiration());
+
+        book.get_or_create_strike(45000);
+        book.get_or_create_strike(50000);
+        book.get_or_create_strike(55000);
+
+        assert_eq!(book.atm_strike(48000).unwrap(), 50000);
+        assert_eq!(book.atm_strike(53000).unwrap(), 55000);
+    }
+
+    #[test]
+    fn test_expiration_order_book_atm_strike_empty() {
+        let book = ExpirationOrderBook::new("BTC", test_expiration());
+        assert!(book.atm_strike(50000).is_err());
+    }
+
+    #[test]
+    fn test_expiration_manager_get() {
+        let manager = ExpirationOrderBookManager::new("BTC");
+        let exp = test_expiration();
+
+        manager.get_or_create(exp);
+
+        assert!(manager.get(&exp).is_ok());
+        assert!(manager.get(&ExpirationDate::Days(pos!(999.0))).is_err());
+    }
+
+    #[test]
+    fn test_expiration_manager_contains() {
+        let manager = ExpirationOrderBookManager::new("BTC");
+        let exp = test_expiration();
+
+        manager.get_or_create(exp);
+
+        assert!(manager.contains(&exp));
+        assert!(!manager.contains(&ExpirationDate::Days(pos!(999.0))));
+    }
+
+    #[test]
+    fn test_expiration_manager_remove() {
+        let manager = ExpirationOrderBookManager::new("BTC");
+        let exp = test_expiration();
+
+        manager.get_or_create(exp);
+        assert_eq!(manager.len(), 1);
+
+        assert!(manager.remove(&exp));
+        assert_eq!(manager.len(), 0);
+        assert!(!manager.remove(&exp));
+    }
+
+    #[test]
+    fn test_expiration_manager_total_order_count() {
+        let manager = ExpirationOrderBookManager::new("BTC");
+
+        let exp_book = manager.get_or_create(test_expiration());
+        let strike = exp_book.get_or_create_strike(50000);
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        drop(strike);
+        drop(exp_book);
+
+        assert_eq!(manager.total_order_count(), 1);
+    }
+
+    #[test]
+    fn test_expiration_manager_total_strike_count() {
+        let manager = ExpirationOrderBookManager::new("BTC");
+
+        let exp_book = manager.get_or_create(test_expiration());
+        exp_book.get_or_create_strike(50000);
+        exp_book.get_or_create_strike(55000);
+        drop(exp_book);
+
+        assert_eq!(manager.total_strike_count(), 2);
+    }
+
+    #[test]
+    fn test_expiration_manager_stats() {
+        let manager = ExpirationOrderBookManager::new("BTC");
+
+        let exp_book = manager.get_or_create(test_expiration());
+        let strike = exp_book.get_or_create_strike(50000);
+        strike
+            .call()
+            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+            .unwrap();
+        drop(strike);
+        drop(exp_book);
+
+        let stats = manager.stats();
+        assert_eq!(stats.underlying, "BTC");
+        assert_eq!(stats.expiration_count, 1);
+        assert_eq!(stats.total_strikes, 1);
+        assert_eq!(stats.total_orders, 1);
+
+        let display = format!("{}", stats);
+        assert!(display.contains("BTC"));
+    }
 }

@@ -40,7 +40,6 @@ default = []
 
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = ["html_reports"] }
-tokio = { version = "1.48", features = ["rt-multi-thread", "macros", "test-util"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[test]]

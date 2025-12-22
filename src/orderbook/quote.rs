@@ -238,4 +238,28 @@ mod tests {
         assert!(!update.ask_price_changed());
         assert!(update.price_changed());
     }
+
+    #[test]
+    fn test_quote_timestamp() {
+        let quote = Quote::new(Some(100), 10, Some(105), 5, 1234567890);
+        assert_eq!(quote.timestamp_ms(), 1234567890);
+    }
+
+    #[test]
+    fn test_quote_spread_bps() {
+        let quote = Quote::new(Some(100), 10, Some(105), 5, 0);
+        let spread_bps = quote.spread_bps();
+        assert!(spread_bps.is_some());
+        // Spread = 5, mid = 102.5, bps = 5/102.5 * 10000 ≈ 487.8
+        assert!((spread_bps.unwrap() - 487.8).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_quote_spread_bps_none() {
+        let quote = Quote::new(Some(100), 10, None, 0, 0);
+        assert!(quote.spread_bps().is_none());
+
+        let quote2 = Quote::empty(0);
+        assert!(quote2.spread_bps().is_none());
+    }
 }
