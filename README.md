@@ -34,8 +34,14 @@ providing a complete Option Chain Order Book system built on top of
 - **Real-Time Order Book per Option**: Individual order books for each option
   contract with full depth, powered by OrderBook-rs.
 
-- **OptionStratLib Integration**: Use Greeks calculation, Options struct,
-  and pricing models directly from OptionStratLib.
+- **Thread-Safe Concurrent Access**: Uses `DashMap` for concurrent access
+  to order books across multiple threads.
+
+- **OptionStratLib Integration**: Use Greeks calculation, `ExpirationDate`,
+  `OptionStyle`, and pricing models directly from OptionStratLib.
+
+- **Result-Based Error Handling**: All fallible operations return `Result<T, Error>`
+  with descriptive error types.
 
 ### Architecture
 
@@ -47,8 +53,8 @@ UnderlyingOrderBookManager (manages all underlyings: BTC, ETH, SPX, etc.)
         └── ExpirationOrderBookManager (manages all expirations for underlying)
               └── ExpirationOrderBook (per expiry date)
                     └── OptionChainOrderBook (per expiration, option chain)
-                          └── StrikeOrderBookManager (manages call/put pair)
-                                └── StrikeOrderBook (per strike price)
+                          └── StrikeOrderBookManager (manages all strikes)
+                                └── StrikeOrderBook (per strike price, call/put pair)
                                       └── OptionOrderBook (call or put)
                                             └── OrderBook<T> (from OrderBook-rs)
 ```
@@ -57,13 +63,16 @@ This architecture enables:
 - Efficient aggregation of Greeks and positions at any level
 - Fast lookup of specific option contracts
 - Scalable management of large option chains
+- ATM strike lookup at any level
+- Statistics aggregation across the hierarchy
 
 ### Module Structure
 
 | Module | Description |
 |--------|-------------|
 | [`orderbook`] | Hierarchical order book structure with all managers |
-| [`error`] | Error types for the library |
+| [`error`] | Error types and `Result` type alias |
+| [`utils`] | Utility functions (e.g., date formatting) |
 
 ### Core Components
 
@@ -71,11 +80,14 @@ This architecture enables:
 
 - [`orderbook::UnderlyingOrderBookManager`]: Top-level manager for all underlyings
 - [`orderbook::UnderlyingOrderBook`]: All expirations for a single underlying
+- [`orderbook::ExpirationOrderBookManager`]: Manages expirations for an underlying
 - [`orderbook::ExpirationOrderBook`]: All strikes for a single expiration
 - [`orderbook::OptionChainOrderBook`]: Option chain with strike management
+- [`orderbook::StrikeOrderBookManager`]: Manages strikes for an expiration
 - [`orderbook::StrikeOrderBook`]: Call/put pair at a strike price
 - [`orderbook::OptionOrderBook`]: Single option order book
 - [`orderbook::Quote`]: Two-sided market representation
+- [`orderbook::QuoteUpdate`]: Quote change tracking
 
 ### Example Usage
 
@@ -154,6 +166,43 @@ let delta_value = delta(&option).unwrap();
 let gamma_value = gamma(&option).unwrap();
 ```
 
+### Examples
+
+The library includes comprehensive examples demonstrating each level of the hierarchy:
+
+| Example | Description |
+|---------|-------------|
+| `01_option_orderbook` | Single option order book operations |
+| `02_strike_orderbook` | Strike level with call/put pairs |
+| `03_chain_orderbook` | Option chain (all strikes for one expiration) |
+| `04_expiration_orderbook` | Expiration level with term structure |
+| `05_underlying_orderbook` | Underlying level (all expirations) |
+| `06_full_hierarchy` | Complete hierarchy with trading scenarios |
+
+Run examples with:
+```bash
+cargo run --example 01_option_orderbook
+cargo run --example 06_full_hierarchy
+```
+
+### Benchmarks
+
+Comprehensive benchmarks are available for all components:
+
+- **orderbook_bench**: Single option order book operations
+- **strike_bench**: Strike order book and manager operations
+- **chain_bench**: Option chain order book operations
+- **expiration_bench**: Expiration order book operations
+- **underlying_bench**: Underlying order book operations
+- **hierarchy_bench**: Full hierarchy traversal and trading scenarios
+
+Run benchmarks with:
+```bash
+cargo bench
+cargo bench -- orderbook_benches
+cargo bench -- hierarchy_benches
+```
+
 ### Performance Characteristics
 
 Built on OrderBook-rs's lock-free architecture:
@@ -161,13 +210,16 @@ Built on OrderBook-rs's lock-free architecture:
 - **Order Operations**: O(log N) for add/cancel operations
 - **Best Quote Lookup**: O(1) with caching
 - **Thread Safety**: Lock-free operations for concurrent access
+- **Hierarchy Traversal**: O(1) access via `DashMap`
 
 ### Dependencies
 
-- **orderbook-rs**: Lock-free order book engine
-- **pricelevel**: Price level management
-- **optionstratlib**: Options pricing, Greeks, and strategy analysis
-- **rust_decimal**: Precise decimal arithmetic
+- **orderbook-rs** (0.4): Lock-free order book engine
+- **optionstratlib** (0.13): Options pricing, Greeks, and strategy analysis
+- **dashmap** (6.1): Concurrent hash map for thread-safe access
+- **rust_decimal** (1.39): Precise decimal arithmetic
+- **thiserror** (2.0): Error handling
+- **serde** (1.0): Serialization support
 
 
 ## 🛠 Makefile Commands
