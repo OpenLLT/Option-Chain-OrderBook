@@ -5,8 +5,9 @@
 
 use super::strike::{StrikeOrderBook, StrikeOrderBookManager};
 use crate::error::{Error, Result};
-use dashmap::DashMap;
+use crossbeam_skiplist::SkipMap;
 use optionstratlib::ExpirationDate;
+use std::sync::Arc;
 
 /// Option chain order book for a single expiration.
 ///
@@ -27,7 +28,7 @@ pub struct OptionChainOrderBook {
     /// The expiration date.
     expiration: ExpirationDate,
     /// Strike order book manager.
-    strikes: StrikeOrderBookManager,
+    strikes: Arc<StrikeOrderBookManager>,
 }
 
 impl OptionChainOrderBook {
@@ -42,7 +43,7 @@ impl OptionChainOrderBook {
         let underlying = underlying.into();
 
         Self {
-            strikes: StrikeOrderBookManager::new(&underlying, expiration),
+            strikes: Arc::new(StrikeOrderBookManager::new(&underlying, expiration)),
             underlying,
             expiration,
         }
@@ -62,15 +63,18 @@ impl OptionChainOrderBook {
 
     /// Returns a reference to the strike manager.
     #[must_use]
-    pub const fn strikes(&self) -> &StrikeOrderBookManager {
+    pub fn strikes(&self) -> &StrikeOrderBookManager {
         &self.strikes
     }
 
-    /// Gets or creates a strike order book, returning a guard for access.
-    pub fn get_or_create_strike(
-        &self,
-        strike: u64,
-    ) -> dashmap::mapref::one::Ref<'_, u64, StrikeOrderBook> {
+    /// Returns an Arc reference to the strike manager.
+    #[must_use]
+    pub fn strikes_arc(&self) -> Arc<StrikeOrderBookManager> {
+        Arc::clone(&self.strikes)
+    }
+
+    /// Gets or creates a strike order book, returning an Arc reference.
+    pub fn get_or_create_strike(&self, strike: u64) -> Arc<StrikeOrderBook> {
         self.strikes.get_or_create(strike)
     }
 
@@ -79,10 +83,7 @@ impl OptionChainOrderBook {
     /// # Errors
     ///
     /// Returns `Error::StrikeNotFound` if the strike does not exist.
-    pub fn get_strike(
-        &self,
-        strike: u64,
-    ) -> Result<dashmap::mapref::one::Ref<'_, u64, StrikeOrderBook>> {
+    pub fn get_strike(&self, strike: u64) -> Result<Arc<StrikeOrderBook>> {
         self.strikes.get(strike)
     }
 
@@ -152,10 +153,10 @@ impl std::fmt::Display for OptionChainStats {
 
 /// Manages option chain order books for multiple expirations.
 ///
-/// Uses `DashMap` for thread-safe concurrent access.
+/// Uses `SkipMap` for thread-safe concurrent access.
 pub struct OptionChainOrderBookManager {
     /// Option chains indexed by expiration.
-    chains: DashMap<ExpirationDate, OptionChainOrderBook>,
+    chains: SkipMap<ExpirationDate, Arc<OptionChainOrderBook>>,
     /// The underlying asset symbol.
     underlying: String,
 }
@@ -169,7 +170,7 @@ impl OptionChainOrderBookManager {
     #[must_use]
     pub fn new(underlying: impl Into<String>) -> Self {
         Self {
-            chains: DashMap::new(),
+            chains: SkipMap::new(),
             underlying: underlying.into(),
         }
     }
@@ -193,14 +194,13 @@ impl OptionChainOrderBookManager {
     }
 
     /// Gets or creates an option chain for the given expiration.
-    pub fn get_or_create(
-        &self,
-        expiration: ExpirationDate,
-    ) -> dashmap::mapref::one::Ref<'_, ExpirationDate, OptionChainOrderBook> {
-        self.chains
-            .entry(expiration)
-            .or_insert_with(|| OptionChainOrderBook::new(&self.underlying, expiration))
-            .downgrade()
+    pub fn get_or_create(&self, expiration: ExpirationDate) -> Arc<OptionChainOrderBook> {
+        if let Some(entry) = self.chains.get(&expiration) {
+            return Arc::clone(entry.value());
+        }
+        let chain = Arc::new(OptionChainOrderBook::new(&self.underlying, expiration));
+        self.chains.insert(expiration, Arc::clone(&chain));
+        chain
     }
 
     /// Gets an option chain by expiration.
@@ -208,12 +208,10 @@ impl OptionChainOrderBookManager {
     /// # Errors
     ///
     /// Returns `Error::ExpirationNotFound` if the expiration does not exist.
-    pub fn get(
-        &self,
-        expiration: &ExpirationDate,
-    ) -> Result<dashmap::mapref::one::Ref<'_, ExpirationDate, OptionChainOrderBook>> {
+    pub fn get(&self, expiration: &ExpirationDate) -> Result<Arc<OptionChainOrderBook>> {
         self.chains
             .get(expiration)
+            .map(|e| Arc::clone(e.value()))
             .ok_or_else(|| Error::expiration_not_found(expiration.to_string()))
     }
 
@@ -221,6 +219,15 @@ impl OptionChainOrderBookManager {
     #[must_use]
     pub fn contains(&self, expiration: &ExpirationDate) -> bool {
         self.chains.contains_key(expiration)
+    }
+
+    /// Returns an iterator over all chains.
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<
+        Item = crossbeam_skiplist::map::Entry<'_, ExpirationDate, Arc<OptionChainOrderBook>>,
+    > {
+        self.chains.iter()
     }
 
     /// Removes an option chain.
@@ -260,9 +267,9 @@ mod tests {
     fn test_option_chain_strikes() {
         let chain = OptionChainOrderBook::new("BTC", test_expiration());
 
-        chain.get_or_create_strike(50000);
-        chain.get_or_create_strike(55000);
-        chain.get_or_create_strike(45000);
+        drop(chain.get_or_create_strike(50000));
+        drop(chain.get_or_create_strike(55000));
+        drop(chain.get_or_create_strike(45000));
 
         assert_eq!(chain.strike_count(), 3);
         assert_eq!(chain.strike_prices(), vec![45000, 50000, 55000]);
@@ -272,15 +279,17 @@ mod tests {
     fn test_option_chain_orders() {
         let chain = OptionChainOrderBook::new("BTC", test_expiration());
 
-        let strike = chain.get_or_create_strike(50000);
-        strike
-            .call()
-            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
-            .unwrap();
-        strike
-            .put()
-            .add_limit_order(OrderId::new(), Side::Sell, 50, 5)
-            .unwrap();
+        {
+            let strike = chain.get_or_create_strike(50000);
+            strike
+                .call()
+                .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+                .unwrap();
+            strike
+                .put()
+                .add_limit_order(OrderId::new(), Side::Sell, 50, 5)
+                .unwrap();
+        }
 
         assert_eq!(chain.total_order_count(), 2);
     }
@@ -289,23 +298,25 @@ mod tests {
     fn test_option_chain_stats() {
         let chain = OptionChainOrderBook::new("BTC", test_expiration());
 
-        let strike = chain.get_or_create_strike(50000);
-        strike
-            .call()
-            .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
-            .unwrap();
-        strike
-            .call()
-            .add_limit_order(OrderId::new(), Side::Sell, 101, 5)
-            .unwrap();
-        strike
-            .put()
-            .add_limit_order(OrderId::new(), Side::Buy, 50, 10)
-            .unwrap();
-        strike
-            .put()
-            .add_limit_order(OrderId::new(), Side::Sell, 51, 5)
-            .unwrap();
+        {
+            let strike = chain.get_or_create_strike(50000);
+            strike
+                .call()
+                .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
+                .unwrap();
+            strike
+                .call()
+                .add_limit_order(OrderId::new(), Side::Sell, 101, 5)
+                .unwrap();
+            strike
+                .put()
+                .add_limit_order(OrderId::new(), Side::Buy, 50, 10)
+                .unwrap();
+            strike
+                .put()
+                .add_limit_order(OrderId::new(), Side::Sell, 51, 5)
+                .unwrap();
+        }
 
         let stats = chain.stats();
         assert_eq!(stats.strike_count, 1);
@@ -316,9 +327,9 @@ mod tests {
     fn test_option_chain_manager() {
         let manager = OptionChainOrderBookManager::new("BTC");
 
-        manager.get_or_create(ExpirationDate::Days(pos!(30.0)));
-        manager.get_or_create(ExpirationDate::Days(pos!(60.0)));
-        manager.get_or_create(ExpirationDate::Days(pos!(90.0)));
+        drop(manager.get_or_create(ExpirationDate::Days(pos!(30.0))));
+        drop(manager.get_or_create(ExpirationDate::Days(pos!(60.0))));
+        drop(manager.get_or_create(ExpirationDate::Days(pos!(90.0))));
 
         assert_eq!(manager.len(), 3);
     }
@@ -333,7 +344,7 @@ mod tests {
     #[test]
     fn test_option_chain_strikes_ref() {
         let chain = OptionChainOrderBook::new("BTC", test_expiration());
-        chain.get_or_create_strike(50000);
+        drop(chain.get_or_create_strike(50000));
         let strikes = chain.strikes();
         assert_eq!(strikes.len(), 1);
     }
@@ -341,7 +352,7 @@ mod tests {
     #[test]
     fn test_option_chain_get_strike() {
         let chain = OptionChainOrderBook::new("BTC", test_expiration());
-        chain.get_or_create_strike(50000);
+        drop(chain.get_or_create_strike(50000));
 
         assert!(chain.get_strike(50000).is_ok());
         assert!(chain.get_strike(99999).is_err());
@@ -351,9 +362,9 @@ mod tests {
     fn test_option_chain_atm_strike() {
         let chain = OptionChainOrderBook::new("BTC", test_expiration());
 
-        chain.get_or_create_strike(45000);
-        chain.get_or_create_strike(50000);
-        chain.get_or_create_strike(55000);
+        drop(chain.get_or_create_strike(45000));
+        drop(chain.get_or_create_strike(50000));
+        drop(chain.get_or_create_strike(55000));
 
         assert_eq!(chain.atm_strike(48000).unwrap(), 50000);
         assert_eq!(chain.atm_strike(53000).unwrap(), 55000);
@@ -368,7 +379,7 @@ mod tests {
     #[test]
     fn test_option_chain_stats_display() {
         let chain = OptionChainOrderBook::new("BTC", test_expiration());
-        chain.get_or_create_strike(50000);
+        drop(chain.get_or_create_strike(50000));
 
         let stats = chain.stats();
         let display = format!("{}", stats);
@@ -386,7 +397,7 @@ mod tests {
         let manager = OptionChainOrderBookManager::new("BTC");
         assert!(manager.is_empty());
 
-        manager.get_or_create(test_expiration());
+        drop(manager.get_or_create(test_expiration()));
         assert!(!manager.is_empty());
     }
 
@@ -395,7 +406,7 @@ mod tests {
         let manager = OptionChainOrderBookManager::new("BTC");
         let exp = test_expiration();
 
-        manager.get_or_create(exp);
+        drop(manager.get_or_create(exp));
 
         assert!(manager.get(&exp).is_ok());
         assert!(manager.get(&ExpirationDate::Days(pos!(999.0))).is_err());
@@ -406,7 +417,7 @@ mod tests {
         let manager = OptionChainOrderBookManager::new("BTC");
         let exp = test_expiration();
 
-        manager.get_or_create(exp);
+        drop(manager.get_or_create(exp));
 
         assert!(manager.contains(&exp));
         assert!(!manager.contains(&ExpirationDate::Days(pos!(999.0))));
@@ -417,7 +428,7 @@ mod tests {
         let manager = OptionChainOrderBookManager::new("BTC");
         let exp = test_expiration();
 
-        manager.get_or_create(exp);
+        drop(manager.get_or_create(exp));
         assert_eq!(manager.len(), 1);
 
         assert!(manager.remove(&exp));

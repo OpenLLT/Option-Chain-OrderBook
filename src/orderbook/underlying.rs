@@ -5,8 +5,9 @@
 
 use super::expiration::{ExpirationOrderBook, ExpirationOrderBookManager};
 use crate::error::{Error, Result};
-use dashmap::DashMap;
+use crossbeam_skiplist::SkipMap;
 use optionstratlib::ExpirationDate;
+use std::sync::Arc;
 
 /// Order book for a single underlying asset.
 ///
@@ -56,11 +57,8 @@ impl UnderlyingOrderBook {
         &self.expirations
     }
 
-    /// Gets or creates an expiration order book, returning a guard for access.
-    pub fn get_or_create_expiration(
-        &self,
-        expiration: ExpirationDate,
-    ) -> dashmap::mapref::one::Ref<'_, ExpirationDate, ExpirationOrderBook> {
+    /// Gets or creates an expiration order book, returning an Arc reference.
+    pub fn get_or_create_expiration(&self, expiration: ExpirationDate) -> Arc<ExpirationOrderBook> {
         self.expirations.get_or_create(expiration)
     }
 
@@ -69,10 +67,7 @@ impl UnderlyingOrderBook {
     /// # Errors
     ///
     /// Returns `Error::ExpirationNotFound` if the expiration does not exist.
-    pub fn get_expiration(
-        &self,
-        expiration: &ExpirationDate,
-    ) -> Result<dashmap::mapref::one::Ref<'_, ExpirationDate, ExpirationOrderBook>> {
+    pub fn get_expiration(&self, expiration: &ExpirationDate) -> Result<Arc<ExpirationOrderBook>> {
         self.expirations.get(expiration)
     }
 
@@ -138,7 +133,7 @@ impl std::fmt::Display for UnderlyingStats {
 /// Manages underlying order books for all assets.
 ///
 /// This is the top-level manager for the entire order book hierarchy.
-/// Uses `DashMap` for thread-safe concurrent access.
+/// Uses `SkipMap` for thread-safe concurrent access.
 ///
 /// ## Architecture
 ///
@@ -154,7 +149,7 @@ impl std::fmt::Display for UnderlyingStats {
 /// ```
 pub struct UnderlyingOrderBookManager {
     /// Underlying order books indexed by symbol.
-    underlyings: DashMap<String, UnderlyingOrderBook>,
+    underlyings: SkipMap<String, Arc<UnderlyingOrderBook>>,
 }
 
 impl Default for UnderlyingOrderBookManager {
@@ -168,7 +163,7 @@ impl UnderlyingOrderBookManager {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            underlyings: DashMap::new(),
+            underlyings: SkipMap::new(),
         }
     }
 
@@ -185,15 +180,14 @@ impl UnderlyingOrderBookManager {
     }
 
     /// Gets or creates an underlying order book.
-    pub fn get_or_create(
-        &self,
-        underlying: impl Into<String>,
-    ) -> dashmap::mapref::one::Ref<'_, String, UnderlyingOrderBook> {
+    pub fn get_or_create(&self, underlying: impl Into<String>) -> Arc<UnderlyingOrderBook> {
         let underlying = underlying.into();
-        self.underlyings
-            .entry(underlying.clone())
-            .or_insert_with(|| UnderlyingOrderBook::new(underlying))
-            .downgrade()
+        if let Some(entry) = self.underlyings.get(&underlying) {
+            return Arc::clone(entry.value());
+        }
+        let book = Arc::new(UnderlyingOrderBook::new(&underlying));
+        self.underlyings.insert(underlying, Arc::clone(&book));
+        book
     }
 
     /// Gets an underlying order book.
@@ -201,12 +195,10 @@ impl UnderlyingOrderBookManager {
     /// # Errors
     ///
     /// Returns `Error::UnderlyingNotFound` if the underlying does not exist.
-    pub fn get(
-        &self,
-        underlying: &str,
-    ) -> Result<dashmap::mapref::one::Ref<'_, String, UnderlyingOrderBook>> {
+    pub fn get(&self, underlying: &str) -> Result<Arc<UnderlyingOrderBook>> {
         self.underlyings
             .get(underlying)
+            .map(|e| Arc::clone(e.value()))
             .ok_or_else(|| Error::underlying_not_found(underlying))
     }
 
@@ -216,16 +208,23 @@ impl UnderlyingOrderBookManager {
         self.underlyings.contains_key(underlying)
     }
 
+    /// Returns an iterator over all underlyings.
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = crossbeam_skiplist::map::Entry<'_, String, Arc<UnderlyingOrderBook>>>
+    {
+        self.underlyings.iter()
+    }
+
     /// Removes an underlying order book.
     pub fn remove(&self, underlying: &str) -> bool {
         self.underlyings.remove(underlying).is_some()
     }
 
     /// Returns all underlying symbols (sorted).
+    /// SkipMap maintains sorted order, so no additional sorting needed.
     pub fn underlying_symbols(&self) -> Vec<String> {
-        let mut symbols: Vec<String> = self.underlyings.iter().map(|e| e.key().clone()).collect();
-        symbols.sort();
-        symbols
+        self.underlyings.iter().map(|e| e.key().clone()).collect()
     }
 
     /// Returns the total order count across all underlyings.
@@ -351,9 +350,9 @@ mod tests {
     fn test_underlying_manager_get_or_create() {
         let manager = UnderlyingOrderBookManager::new();
 
-        manager.get_or_create("BTC");
-        manager.get_or_create("ETH");
-        manager.get_or_create("SPX");
+        drop(manager.get_or_create("BTC"));
+        drop(manager.get_or_create("ETH"));
+        drop(manager.get_or_create("SPX"));
 
         assert_eq!(manager.len(), 3);
     }
@@ -395,7 +394,7 @@ mod tests {
     #[test]
     fn test_underlying_order_book_expirations() {
         let book = UnderlyingOrderBook::new("BTC");
-        book.get_or_create_expiration(test_expiration());
+        drop(book.get_or_create_expiration(test_expiration()));
         let expirations = book.expirations();
         assert_eq!(expirations.len(), 1);
     }
@@ -427,7 +426,7 @@ mod tests {
     fn test_underlying_manager_get() {
         let manager = UnderlyingOrderBookManager::new();
 
-        manager.get_or_create("BTC");
+        drop(manager.get_or_create("BTC"));
 
         assert!(manager.get("BTC").is_ok());
         assert!(manager.get("XRP").is_err());
@@ -437,7 +436,7 @@ mod tests {
     fn test_underlying_manager_contains() {
         let manager = UnderlyingOrderBookManager::new();
 
-        manager.get_or_create("BTC");
+        drop(manager.get_or_create("BTC"));
 
         assert!(manager.contains("BTC"));
         assert!(!manager.contains("XRP"));
@@ -447,8 +446,8 @@ mod tests {
     fn test_underlying_manager_remove() {
         let manager = UnderlyingOrderBookManager::new();
 
-        manager.get_or_create("BTC");
-        manager.get_or_create("ETH");
+        drop(manager.get_or_create("BTC"));
+        drop(manager.get_or_create("ETH"));
 
         assert_eq!(manager.len(), 2);
         assert!(manager.remove("BTC"));
@@ -460,9 +459,9 @@ mod tests {
     fn test_underlying_manager_underlying_symbols() {
         let manager = UnderlyingOrderBookManager::new();
 
-        manager.get_or_create("BTC");
-        manager.get_or_create("ETH");
-        manager.get_or_create("SPX");
+        drop(manager.get_or_create("BTC"));
+        drop(manager.get_or_create("ETH"));
+        drop(manager.get_or_create("SPX"));
 
         let symbols = manager.underlying_symbols();
         assert_eq!(symbols.len(), 3);

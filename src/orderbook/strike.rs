@@ -7,9 +7,10 @@ use super::book::OptionOrderBook;
 use super::quote::Quote;
 use crate::error::{Error, Result};
 use crate::utils::format_expiration_yyyymmdd;
-use dashmap::DashMap;
+use crossbeam_skiplist::SkipMap;
 use optionstratlib::greeks::Greek;
 use optionstratlib::{ExpirationDate, OptionStyle};
+use std::sync::Arc;
 
 /// Order book for a single strike price containing both call and put.
 ///
@@ -32,9 +33,9 @@ pub struct StrikeOrderBook {
     /// The strike price.
     strike: u64,
     /// Call option order book.
-    call: OptionOrderBook,
+    call: Arc<OptionOrderBook>,
     /// Put option order book.
-    put: OptionOrderBook,
+    put: Arc<OptionOrderBook>,
     /// Greeks for the call option.
     call_greeks: Option<Greek>,
     /// Greeks for the put option.
@@ -64,8 +65,8 @@ impl StrikeOrderBook {
             underlying,
             expiration,
             strike,
-            call: OptionOrderBook::new(call_symbol, OptionStyle::Call),
-            put: OptionOrderBook::new(put_symbol, OptionStyle::Put),
+            call: Arc::new(OptionOrderBook::new(call_symbol, OptionStyle::Call)),
+            put: Arc::new(OptionOrderBook::new(put_symbol, OptionStyle::Put)),
             call_greeks: None,
             put_greeks: None,
         }
@@ -91,40 +92,43 @@ impl StrikeOrderBook {
 
     /// Returns a reference to the call order book.
     #[must_use]
-    pub const fn call(&self) -> &OptionOrderBook {
+    pub fn call(&self) -> &OptionOrderBook {
         &self.call
     }
 
-    /// Returns a mutable reference to the call order book.
-    pub fn call_mut(&mut self) -> &mut OptionOrderBook {
-        &mut self.call
+    /// Returns an Arc reference to the call order book.
+    #[must_use]
+    pub fn call_arc(&self) -> Arc<OptionOrderBook> {
+        Arc::clone(&self.call)
     }
 
     /// Returns a reference to the put order book.
     #[must_use]
-    pub const fn put(&self) -> &OptionOrderBook {
+    pub fn put(&self) -> &OptionOrderBook {
         &self.put
     }
 
-    /// Returns a mutable reference to the put order book.
-    pub fn put_mut(&mut self) -> &mut OptionOrderBook {
-        &mut self.put
+    /// Returns an Arc reference to the put order book.
+    #[must_use]
+    pub fn put_arc(&self) -> Arc<OptionOrderBook> {
+        Arc::clone(&self.put)
     }
 
     /// Returns the order book for the specified option style.
     #[must_use]
-    pub const fn get(&self, option_style: OptionStyle) -> &OptionOrderBook {
+    pub fn get(&self, option_style: OptionStyle) -> &OptionOrderBook {
         match option_style {
             OptionStyle::Call => &self.call,
             OptionStyle::Put => &self.put,
         }
     }
 
-    /// Returns a mutable reference to the order book for the specified option style.
-    pub fn get_mut(&mut self, option_style: OptionStyle) -> &mut OptionOrderBook {
+    /// Returns an Arc reference to the order book for the specified option style.
+    #[must_use]
+    pub fn get_arc(&self, option_style: OptionStyle) -> Arc<OptionOrderBook> {
         match option_style {
-            OptionStyle::Call => &mut self.call,
-            OptionStyle::Put => &mut self.put,
+            OptionStyle::Call => Arc::clone(&self.call),
+            OptionStyle::Put => Arc::clone(&self.put),
         }
     }
 
@@ -190,10 +194,10 @@ impl StrikeOrderBook {
 /// Manages strike order books for a single expiration.
 ///
 /// Provides centralized access to all strikes within an expiration.
-/// Uses `DashMap` for thread-safe concurrent access.
+/// Uses `SkipMap` for thread-safe concurrent access.
 pub struct StrikeOrderBookManager {
     /// Strike order books indexed by strike price.
-    strikes: DashMap<u64, StrikeOrderBook>,
+    strikes: SkipMap<u64, Arc<StrikeOrderBook>>,
     /// The underlying asset symbol.
     underlying: String,
     /// The expiration date.
@@ -210,7 +214,7 @@ impl StrikeOrderBookManager {
     #[must_use]
     pub fn new(underlying: impl Into<String>, expiration: ExpirationDate) -> Self {
         Self {
-            strikes: DashMap::new(),
+            strikes: SkipMap::new(),
             underlying: underlying.into(),
             expiration,
         }
@@ -240,15 +244,18 @@ impl StrikeOrderBookManager {
         self.strikes.is_empty()
     }
 
-    /// Gets or creates a strike order book, returning a guard for access.
-    pub fn get_or_create(
-        &self,
-        strike: u64,
-    ) -> dashmap::mapref::one::Ref<'_, u64, StrikeOrderBook> {
-        self.strikes
-            .entry(strike)
-            .or_insert_with(|| StrikeOrderBook::new(&self.underlying, self.expiration, strike))
-            .downgrade()
+    /// Gets or creates a strike order book, returning an Arc reference.
+    pub fn get_or_create(&self, strike: u64) -> Arc<StrikeOrderBook> {
+        if let Some(entry) = self.strikes.get(&strike) {
+            return Arc::clone(entry.value());
+        }
+        let book = Arc::new(StrikeOrderBook::new(
+            &self.underlying,
+            self.expiration,
+            strike,
+        ));
+        self.strikes.insert(strike, Arc::clone(&book));
+        book
     }
 
     /// Gets a strike order book by strike price.
@@ -256,9 +263,10 @@ impl StrikeOrderBookManager {
     /// # Errors
     ///
     /// Returns `Error::StrikeNotFound` if the strike does not exist.
-    pub fn get(&self, strike: u64) -> Result<dashmap::mapref::one::Ref<'_, u64, StrikeOrderBook>> {
+    pub fn get(&self, strike: u64) -> Result<Arc<StrikeOrderBook>> {
         self.strikes
             .get(&strike)
+            .map(|e| Arc::clone(e.value()))
             .ok_or_else(|| Error::strike_not_found(strike))
     }
 
@@ -266,6 +274,13 @@ impl StrikeOrderBookManager {
     #[must_use]
     pub fn contains(&self, strike: u64) -> bool {
         self.strikes.contains_key(&strike)
+    }
+
+    /// Returns an iterator over all strikes.
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = crossbeam_skiplist::map::Entry<'_, u64, Arc<StrikeOrderBook>>> {
+        self.strikes.iter()
     }
 
     /// Removes a strike order book.
@@ -276,10 +291,9 @@ impl StrikeOrderBookManager {
     }
 
     /// Returns all strike prices (sorted).
+    /// SkipMap maintains sorted order, so no additional sorting needed.
     pub fn strike_prices(&self) -> Vec<u64> {
-        let mut prices: Vec<u64> = self.strikes.iter().map(|e| *e.key()).collect();
-        prices.sort_unstable();
-        prices
+        self.strikes.iter().map(|e| *e.key()).collect()
     }
 
     /// Returns the total order count across all strikes.
@@ -351,11 +365,13 @@ mod tests {
     fn test_strike_manager_get_or_create() {
         let manager = StrikeOrderBookManager::new("BTC", test_expiration());
 
-        let strike = manager.get_or_create(50000);
-        assert_eq!(strike.strike(), 50000);
+        {
+            let strike = manager.get_or_create(50000);
+            assert_eq!(strike.strike(), 50000);
+        }
 
-        manager.get_or_create(55000);
-        manager.get_or_create(45000);
+        drop(manager.get_or_create(55000));
+        drop(manager.get_or_create(45000));
 
         assert_eq!(manager.len(), 3);
 
@@ -367,9 +383,9 @@ mod tests {
     fn test_strike_manager_atm() {
         let manager = StrikeOrderBookManager::new("BTC", test_expiration());
 
-        manager.get_or_create(45000);
-        manager.get_or_create(50000);
-        manager.get_or_create(55000);
+        drop(manager.get_or_create(45000));
+        drop(manager.get_or_create(50000));
+        drop(manager.get_or_create(55000));
 
         assert_eq!(manager.atm_strike(48000).unwrap(), 50000);
         assert_eq!(manager.atm_strike(52000).unwrap(), 50000);
@@ -391,9 +407,9 @@ mod tests {
 
     #[test]
     fn test_strike_call_mut() {
-        let mut strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
-        let call_mut = strike.call_mut();
-        call_mut
+        let strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
+        let call_arc = strike.call_arc();
+        call_arc
             .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
             .unwrap();
         assert_eq!(strike.call().order_count(), 1);
@@ -401,9 +417,9 @@ mod tests {
 
     #[test]
     fn test_strike_put_mut() {
-        let mut strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
-        let put_mut = strike.put_mut();
-        put_mut
+        let strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
+        let put_arc = strike.put_arc();
+        put_arc
             .add_limit_order(OrderId::new(), Side::Buy, 50, 10)
             .unwrap();
         assert_eq!(strike.put().order_count(), 1);
@@ -430,15 +446,15 @@ mod tests {
     }
 
     #[test]
-    fn test_strike_get_mut_by_style() {
-        let mut strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
+    fn test_strike_get_arc_by_style() {
+        let strike = StrikeOrderBook::new("BTC", test_expiration(), 50000);
 
         strike
-            .get_mut(OptionStyle::Call)
+            .get_arc(OptionStyle::Call)
             .add_limit_order(OrderId::new(), Side::Buy, 100, 10)
             .unwrap();
         strike
-            .get_mut(OptionStyle::Put)
+            .get_arc(OptionStyle::Put)
             .add_limit_order(OrderId::new(), Side::Buy, 50, 5)
             .unwrap();
 
@@ -570,7 +586,7 @@ mod tests {
     fn test_strike_manager_get() {
         let manager = StrikeOrderBookManager::new("BTC", test_expiration());
 
-        manager.get_or_create(50000);
+        drop(manager.get_or_create(50000));
 
         assert!(manager.get(50000).is_ok());
         assert!(manager.get(99999).is_err());
@@ -580,7 +596,7 @@ mod tests {
     fn test_strike_manager_contains() {
         let manager = StrikeOrderBookManager::new("BTC", test_expiration());
 
-        manager.get_or_create(50000);
+        drop(manager.get_or_create(50000));
 
         assert!(manager.contains(50000));
         assert!(!manager.contains(99999));
@@ -590,8 +606,8 @@ mod tests {
     fn test_strike_manager_remove() {
         let manager = StrikeOrderBookManager::new("BTC", test_expiration());
 
-        manager.get_or_create(50000);
-        manager.get_or_create(55000);
+        drop(manager.get_or_create(50000));
+        drop(manager.get_or_create(55000));
 
         assert_eq!(manager.len(), 2);
         assert!(manager.remove(50000));

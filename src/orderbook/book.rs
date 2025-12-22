@@ -9,6 +9,7 @@ use optionstratlib::OptionStyle;
 use orderbook_rs::{DefaultOrderBook, OrderBookSnapshot, OrderId, Side, TimeInForce};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 /// Order book for a single option contract.
 ///
@@ -35,9 +36,9 @@ pub struct OptionOrderBook {
     /// Hash of the symbol for efficient comparison.
     symbol_hash: u64,
     /// The underlying order book from OrderBook-rs.
-    book: DefaultOrderBook,
+    book: Arc<DefaultOrderBook>,
     /// Last known quote for change detection.
-    last_quote: Quote,
+    last_quote: Arc<Quote>,
     /// The option style (Call or Put).
     option_style: OptionStyle,
 }
@@ -57,8 +58,8 @@ impl OptionOrderBook {
         Self {
             symbol: symbol.clone(),
             symbol_hash,
-            book: DefaultOrderBook::new(&symbol),
-            last_quote: Quote::empty(0),
+            book: Arc::new(DefaultOrderBook::new(&symbol)),
+            last_quote: Arc::new(Quote::empty(0)),
             option_style,
         }
     }
@@ -90,13 +91,14 @@ impl OptionOrderBook {
 
     /// Returns a reference to the underlying OrderBook from OrderBook-rs.
     #[must_use]
-    pub const fn inner(&self) -> &DefaultOrderBook {
+    pub fn inner(&self) -> &DefaultOrderBook {
         &self.book
     }
 
-    /// Returns a mutable reference to the underlying OrderBook.
-    pub fn inner_mut(&mut self) -> &mut DefaultOrderBook {
-        &mut self.book
+    /// Returns an Arc reference to the underlying OrderBook.
+    #[must_use]
+    pub fn inner_arc(&self) -> Arc<DefaultOrderBook> {
+        Arc::clone(&self.book)
     }
 
     /// Adds a limit order to the book.
@@ -282,15 +284,21 @@ impl OptionOrderBook {
     /// Updates the last known quote and returns true if it changed.
     pub fn update_last_quote(&mut self) -> bool {
         let current = self.best_quote();
-        let changed = current != self.last_quote;
-        self.last_quote = current;
+        let changed = current != *self.last_quote;
+        self.last_quote = Arc::new(current);
         changed
     }
 
-    /// Returns the last known quote.
+    /// Returns a reference to the last known quote.
     #[must_use]
-    pub const fn last_quote(&self) -> &Quote {
+    pub fn last_quote(&self) -> &Quote {
         &self.last_quote
+    }
+
+    /// Returns an Arc reference to the last known quote.
+    #[must_use]
+    pub fn last_quote_arc(&self) -> Arc<Quote> {
+        Arc::clone(&self.last_quote)
     }
 
     /// Returns depth at a specific price level on the bid side.
@@ -450,9 +458,9 @@ mod tests {
     }
 
     #[test]
-    fn test_inner_mut_access() {
-        let mut book = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
-        let _inner_mut = book.inner_mut();
+    fn test_inner_arc_access() {
+        let book = OptionOrderBook::new("BTC-20240329-50000-C", OptionStyle::Call);
+        let _inner_arc = book.inner_arc();
         assert!(book.is_empty());
     }
 

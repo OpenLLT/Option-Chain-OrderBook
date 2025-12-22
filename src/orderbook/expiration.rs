@@ -6,8 +6,9 @@
 use super::chain::OptionChainOrderBook;
 use super::strike::StrikeOrderBook;
 use crate::error::{Error, Result};
-use dashmap::DashMap;
+use crossbeam_skiplist::SkipMap;
 use optionstratlib::ExpirationDate;
+use std::sync::Arc;
 
 /// Order book for a single expiration date.
 ///
@@ -27,7 +28,7 @@ pub struct ExpirationOrderBook {
     /// The expiration date.
     expiration: ExpirationDate,
     /// The option chain for this expiration.
-    chain: OptionChainOrderBook,
+    chain: Arc<OptionChainOrderBook>,
 }
 
 impl ExpirationOrderBook {
@@ -42,7 +43,7 @@ impl ExpirationOrderBook {
         let underlying = underlying.into();
 
         Self {
-            chain: OptionChainOrderBook::new(&underlying, expiration),
+            chain: Arc::new(OptionChainOrderBook::new(&underlying, expiration)),
             underlying,
             expiration,
         }
@@ -62,15 +63,18 @@ impl ExpirationOrderBook {
 
     /// Returns a reference to the option chain.
     #[must_use]
-    pub const fn chain(&self) -> &OptionChainOrderBook {
+    pub fn chain(&self) -> &OptionChainOrderBook {
         &self.chain
     }
 
-    /// Gets or creates a strike order book, returning a guard for access.
-    pub fn get_or_create_strike(
-        &self,
-        strike: u64,
-    ) -> dashmap::mapref::one::Ref<'_, u64, StrikeOrderBook> {
+    /// Returns an Arc reference to the option chain.
+    #[must_use]
+    pub fn chain_arc(&self) -> Arc<OptionChainOrderBook> {
+        Arc::clone(&self.chain)
+    }
+
+    /// Gets or creates a strike order book, returning an Arc reference.
+    pub fn get_or_create_strike(&self, strike: u64) -> Arc<StrikeOrderBook> {
         self.chain.get_or_create_strike(strike)
     }
 
@@ -79,10 +83,7 @@ impl ExpirationOrderBook {
     /// # Errors
     ///
     /// Returns `Error::StrikeNotFound` if the strike does not exist.
-    pub fn get_strike(
-        &self,
-        strike: u64,
-    ) -> Result<dashmap::mapref::one::Ref<'_, u64, StrikeOrderBook>> {
+    pub fn get_strike(&self, strike: u64) -> Result<Arc<StrikeOrderBook>> {
         self.chain.get_strike(strike)
     }
 
@@ -122,10 +123,10 @@ impl ExpirationOrderBook {
 /// Manages expiration order books for a single underlying.
 ///
 /// Provides centralized access to all expirations for an underlying asset.
-/// Uses `DashMap` for thread-safe concurrent access.
+/// Uses `SkipMap` for thread-safe concurrent access.
 pub struct ExpirationOrderBookManager {
     /// Expiration order books indexed by expiration date.
-    expirations: DashMap<ExpirationDate, ExpirationOrderBook>,
+    expirations: SkipMap<ExpirationDate, Arc<ExpirationOrderBook>>,
     /// The underlying asset symbol.
     underlying: String,
 }
@@ -139,7 +140,7 @@ impl ExpirationOrderBookManager {
     #[must_use]
     pub fn new(underlying: impl Into<String>) -> Self {
         Self {
-            expirations: DashMap::new(),
+            expirations: SkipMap::new(),
             underlying: underlying.into(),
         }
     }
@@ -163,14 +164,13 @@ impl ExpirationOrderBookManager {
     }
 
     /// Gets or creates an expiration order book.
-    pub fn get_or_create(
-        &self,
-        expiration: ExpirationDate,
-    ) -> dashmap::mapref::one::Ref<'_, ExpirationDate, ExpirationOrderBook> {
-        self.expirations
-            .entry(expiration)
-            .or_insert_with(|| ExpirationOrderBook::new(&self.underlying, expiration))
-            .downgrade()
+    pub fn get_or_create(&self, expiration: ExpirationDate) -> Arc<ExpirationOrderBook> {
+        if let Some(entry) = self.expirations.get(&expiration) {
+            return Arc::clone(entry.value());
+        }
+        let book = Arc::new(ExpirationOrderBook::new(&self.underlying, expiration));
+        self.expirations.insert(expiration, Arc::clone(&book));
+        book
     }
 
     /// Gets an expiration order book.
@@ -178,12 +178,10 @@ impl ExpirationOrderBookManager {
     /// # Errors
     ///
     /// Returns `Error::ExpirationNotFound` if the expiration does not exist.
-    pub fn get(
-        &self,
-        expiration: &ExpirationDate,
-    ) -> Result<dashmap::mapref::one::Ref<'_, ExpirationDate, ExpirationOrderBook>> {
+    pub fn get(&self, expiration: &ExpirationDate) -> Result<Arc<ExpirationOrderBook>> {
         self.expirations
             .get(expiration)
+            .map(|e| Arc::clone(e.value()))
             .ok_or_else(|| Error::expiration_not_found(expiration.to_string()))
     }
 
@@ -191,6 +189,14 @@ impl ExpirationOrderBookManager {
     #[must_use]
     pub fn contains(&self, expiration: &ExpirationDate) -> bool {
         self.expirations.contains_key(expiration)
+    }
+
+    /// Returns an iterator over all expirations.
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = crossbeam_skiplist::map::Entry<'_, ExpirationDate, Arc<ExpirationOrderBook>>>
+    {
+        self.expirations.iter()
     }
 
     /// Removes an expiration order book.
@@ -273,9 +279,9 @@ mod tests {
     fn test_expiration_order_book_strikes() {
         let exp = ExpirationOrderBook::new("BTC", test_expiration());
 
-        exp.get_or_create_strike(50000);
-        exp.get_or_create_strike(55000);
-        exp.get_or_create_strike(45000);
+        drop(exp.get_or_create_strike(50000));
+        drop(exp.get_or_create_strike(55000));
+        drop(exp.get_or_create_strike(45000));
 
         assert_eq!(exp.strike_count(), 3);
         assert_eq!(exp.strike_prices(), vec![45000, 50000, 55000]);
@@ -306,9 +312,9 @@ mod tests {
     fn test_expiration_manager_get_or_create() {
         let manager = ExpirationOrderBookManager::new("BTC");
 
-        manager.get_or_create(ExpirationDate::Days(pos!(30.0)));
-        manager.get_or_create(ExpirationDate::Days(pos!(60.0)));
-        manager.get_or_create(ExpirationDate::Days(pos!(90.0)));
+        drop(manager.get_or_create(ExpirationDate::Days(pos!(30.0))));
+        drop(manager.get_or_create(ExpirationDate::Days(pos!(60.0))));
+        drop(manager.get_or_create(ExpirationDate::Days(pos!(90.0))));
 
         assert_eq!(manager.len(), 3);
     }
@@ -323,7 +329,7 @@ mod tests {
     #[test]
     fn test_expiration_order_book_chain() {
         let book = ExpirationOrderBook::new("BTC", test_expiration());
-        book.get_or_create_strike(50000);
+        drop(book.get_or_create_strike(50000));
         let chain = book.chain();
         assert_eq!(chain.strike_count(), 1);
     }
@@ -331,7 +337,7 @@ mod tests {
     #[test]
     fn test_expiration_order_book_get_strike() {
         let book = ExpirationOrderBook::new("BTC", test_expiration());
-        book.get_or_create_strike(50000);
+        drop(book.get_or_create_strike(50000));
 
         assert!(book.get_strike(50000).is_ok());
         assert!(book.get_strike(99999).is_err());
@@ -341,9 +347,9 @@ mod tests {
     fn test_expiration_order_book_atm_strike() {
         let book = ExpirationOrderBook::new("BTC", test_expiration());
 
-        book.get_or_create_strike(45000);
-        book.get_or_create_strike(50000);
-        book.get_or_create_strike(55000);
+        drop(book.get_or_create_strike(45000));
+        drop(book.get_or_create_strike(50000));
+        drop(book.get_or_create_strike(55000));
 
         assert_eq!(book.atm_strike(48000).unwrap(), 50000);
         assert_eq!(book.atm_strike(53000).unwrap(), 55000);
@@ -360,7 +366,7 @@ mod tests {
         let manager = ExpirationOrderBookManager::new("BTC");
         let exp = test_expiration();
 
-        manager.get_or_create(exp);
+        drop(manager.get_or_create(exp));
 
         assert!(manager.get(&exp).is_ok());
         assert!(manager.get(&ExpirationDate::Days(pos!(999.0))).is_err());
@@ -371,7 +377,7 @@ mod tests {
         let manager = ExpirationOrderBookManager::new("BTC");
         let exp = test_expiration();
 
-        manager.get_or_create(exp);
+        drop(manager.get_or_create(exp));
 
         assert!(manager.contains(&exp));
         assert!(!manager.contains(&ExpirationDate::Days(pos!(999.0))));
@@ -382,7 +388,7 @@ mod tests {
         let manager = ExpirationOrderBookManager::new("BTC");
         let exp = test_expiration();
 
-        manager.get_or_create(exp);
+        drop(manager.get_or_create(exp));
         assert_eq!(manager.len(), 1);
 
         assert!(manager.remove(&exp));
