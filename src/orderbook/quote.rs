@@ -3,13 +3,16 @@
 //! This module provides the [`Quote`] and [`QuoteUpdate`] types for representing
 //! two-sided markets (bid and ask).
 
+use orderbook_rs::OrderId;
 use serde::{Deserialize, Serialize};
 
 /// Represents a two-sided quote (bid and ask).
 ///
 /// A quote captures the best bid and ask prices and sizes at a point in time.
 /// Prices are in smallest units (e.g., cents, satoshis) as `u64`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+///
+/// Note: Equality comparison excludes the `id` field, comparing only market data.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Quote {
     /// Best bid price (None if no bids).
     bid_price: Option<u64>,
@@ -21,6 +24,8 @@ pub struct Quote {
     ask_size: u64,
     /// Timestamp in milliseconds.
     timestamp_ms: u64,
+    /// Unique identifier for this quote.
+    id: OrderId,
 }
 
 impl Quote {
@@ -34,7 +39,7 @@ impl Quote {
     /// * `ask_size` - Size at best ask
     /// * `timestamp_ms` - Timestamp in milliseconds
     #[must_use]
-    pub const fn new(
+    pub fn new(
         bid_price: Option<u64>,
         bid_size: u64,
         ask_price: Option<u64>,
@@ -47,19 +52,27 @@ impl Quote {
             ask_price,
             ask_size,
             timestamp_ms,
+            id: OrderId::new(),
         }
     }
 
     /// Creates an empty quote with no prices.
     #[must_use]
-    pub const fn empty(timestamp_ms: u64) -> Self {
+    pub fn empty(timestamp_ms: u64) -> Self {
         Self {
             bid_price: None,
             bid_size: 0,
             ask_price: None,
             ask_size: 0,
             timestamp_ms,
+            id: OrderId::new(),
         }
+    }
+
+    /// Returns the unique identifier for this quote.
+    #[must_use]
+    pub const fn id(&self) -> OrderId {
+        self.id
     }
 
     /// Returns the best bid price.
@@ -131,6 +144,18 @@ impl Quote {
         }
     }
 }
+
+impl PartialEq for Quote {
+    fn eq(&self, other: &Self) -> bool {
+        self.bid_price == other.bid_price
+            && self.bid_size == other.bid_size
+            && self.ask_price == other.ask_price
+            && self.ask_size == other.ask_size
+            && self.timestamp_ms == other.timestamp_ms
+    }
+}
+
+impl Eq for Quote {}
 
 impl std::fmt::Display for Quote {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

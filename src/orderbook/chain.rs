@@ -7,6 +7,7 @@ use super::strike::{StrikeOrderBook, StrikeOrderBookManager};
 use crate::error::{Error, Result};
 use crossbeam_skiplist::SkipMap;
 use optionstratlib::ExpirationDate;
+use orderbook_rs::OrderId;
 use std::sync::Arc;
 
 /// Option chain order book for a single expiration.
@@ -29,6 +30,8 @@ pub struct OptionChainOrderBook {
     expiration: ExpirationDate,
     /// Strike order book manager.
     strikes: Arc<StrikeOrderBookManager>,
+    /// Unique identifier for this option chain order book.
+    id: OrderId,
 }
 
 impl OptionChainOrderBook {
@@ -46,6 +49,7 @@ impl OptionChainOrderBook {
             strikes: Arc::new(StrikeOrderBookManager::new(&underlying, expiration)),
             underlying,
             expiration,
+            id: OrderId::new(),
         }
     }
 
@@ -59,6 +63,12 @@ impl OptionChainOrderBook {
     #[must_use]
     pub const fn expiration(&self) -> &ExpirationDate {
         &self.expiration
+    }
+
+    /// Returns the unique identifier for this option chain order book.
+    #[must_use]
+    pub const fn id(&self) -> OrderId {
+        self.id
     }
 
     /// Returns a reference to the strike manager.

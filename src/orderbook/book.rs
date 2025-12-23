@@ -41,6 +41,8 @@ pub struct OptionOrderBook {
     last_quote: Arc<Quote>,
     /// The option style (Call or Put).
     option_style: OptionStyle,
+    /// Unique identifier for this order book.
+    id: OrderId,
 }
 
 impl OptionOrderBook {
@@ -61,6 +63,7 @@ impl OptionOrderBook {
             book: Arc::new(DefaultOrderBook::new(&symbol)),
             last_quote: Arc::new(Quote::empty(0)),
             option_style,
+            id: OrderId::new(),
         }
     }
 
@@ -87,6 +90,12 @@ impl OptionOrderBook {
     #[must_use]
     pub const fn symbol_hash(&self) -> u64 {
         self.symbol_hash
+    }
+
+    /// Returns the unique identifier for this order book.
+    #[must_use]
+    pub const fn id(&self) -> OrderId {
+        self.id
     }
 
     /// Returns a reference to the underlying OrderBook from OrderBook-rs.

@@ -10,6 +10,7 @@ use crate::utils::format_expiration_yyyymmdd;
 use crossbeam_skiplist::SkipMap;
 use optionstratlib::greeks::Greek;
 use optionstratlib::{ExpirationDate, OptionStyle};
+use orderbook_rs::OrderId;
 use std::sync::Arc;
 
 /// Order book for a single strike price containing both call and put.
@@ -40,6 +41,8 @@ pub struct StrikeOrderBook {
     call_greeks: Option<Greek>,
     /// Greeks for the put option.
     put_greeks: Option<Greek>,
+    /// Unique identifier for this strike order book.
+    id: OrderId,
 }
 
 impl StrikeOrderBook {
@@ -69,6 +72,7 @@ impl StrikeOrderBook {
             put: Arc::new(OptionOrderBook::new(put_symbol, OptionStyle::Put)),
             call_greeks: None,
             put_greeks: None,
+            id: OrderId::new(),
         }
     }
 
@@ -88,6 +92,12 @@ impl StrikeOrderBook {
     #[must_use]
     pub const fn strike(&self) -> u64 {
         self.strike
+    }
+
+    /// Returns the unique identifier for this strike order book.
+    #[must_use]
+    pub const fn id(&self) -> OrderId {
+        self.id
     }
 
     /// Returns a reference to the call order book.
