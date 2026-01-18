@@ -147,11 +147,12 @@ impl Quote {
 
 impl PartialEq for Quote {
     fn eq(&self, other: &Self) -> bool {
+        // Note: timestamp_ms and id are excluded from comparison
+        // to detect only market data changes (prices and sizes)
         self.bid_price == other.bid_price
             && self.bid_size == other.bid_size
             && self.ask_price == other.ask_price
             && self.ask_size == other.ask_size
-            && self.timestamp_ms == other.timestamp_ms
     }
 }
 
