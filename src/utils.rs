@@ -21,9 +21,10 @@ use optionstratlib::ExpirationDate;
 ///
 /// ```rust
 /// use option_chain_orderbook::utils::format_expiration_yyyymmdd;
-/// use optionstratlib::{pos, ExpirationDate};
+/// use optionstratlib::prelude::pos_or_panic;
+/// use optionstratlib::ExpirationDate;
 ///
-/// let expiration = ExpirationDate::Days(pos!(30.0));
+/// let expiration = ExpirationDate::Days(pos_or_panic!(30.0));
 /// let formatted = format_expiration_yyyymmdd(&expiration).unwrap();
 /// assert_eq!(formatted.len(), 8); // YYYYMMDD format
 /// ```
@@ -36,11 +37,11 @@ pub fn format_expiration_yyyymmdd(expiration: &ExpirationDate) -> Result<String>
 mod tests {
     use super::*;
     use chrono::{TimeZone, Utc};
-    use optionstratlib::pos;
+    use optionstratlib::prelude::pos_or_panic;
 
     #[test]
     fn test_format_expiration_yyyymmdd_days() {
-        let expiration = ExpirationDate::Days(pos!(30.0));
+        let expiration = ExpirationDate::Days(pos_or_panic!(30.0));
         let formatted = format_expiration_yyyymmdd(&expiration).unwrap();
         assert_eq!(formatted.len(), 8);
         // Should be numeric only

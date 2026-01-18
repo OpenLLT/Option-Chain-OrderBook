@@ -292,11 +292,11 @@ impl std::fmt::Display for GlobalStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use optionstratlib::pos;
+    use optionstratlib::prelude::pos_or_panic;
     use orderbook_rs::{OrderId, Side};
 
     fn test_expiration() -> ExpirationDate {
-        ExpirationDate::Days(pos!(30.0))
+        ExpirationDate::Days(pos_or_panic!(30.0))
     }
 
     #[test]
@@ -333,7 +333,7 @@ mod tests {
         let exp = book.get_expiration(&exp_date);
         assert!(exp.is_ok());
 
-        let missing_exp = ExpirationDate::Days(pos!(90.0));
+        let missing_exp = ExpirationDate::Days(pos_or_panic!(90.0));
         let missing = book.get_expiration(&missing_exp);
         assert!(missing.is_err());
     }

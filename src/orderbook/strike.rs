@@ -329,11 +329,11 @@ impl StrikeOrderBookManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use optionstratlib::pos;
+    use optionstratlib::prelude::pos_or_panic;
     use orderbook_rs::{OrderId, Side};
 
     fn test_expiration() -> ExpirationDate {
-        ExpirationDate::Days(pos!(30.0))
+        ExpirationDate::Days(pos_or_panic!(30.0))
     }
 
     #[test]

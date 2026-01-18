@@ -5,7 +5,7 @@
 
 use criterion::{BenchmarkId, Criterion, Throughput};
 use option_chain_orderbook::orderbook::UnderlyingOrderBookManager;
-use optionstratlib::{ExpirationDate, pos};
+use optionstratlib::prelude::{ExpirationDate, Positive, pos_or_panic};
 use orderbook_rs::{OrderId, Side};
 
 /// Benchmarks for full hierarchy traversal operations.
@@ -18,7 +18,7 @@ pub fn hierarchy_operations(c: &mut Criterion) {
         let mut counter = 0u64;
         b.iter(|| {
             let underlying = manager.get_or_create("BTC");
-            let exp = ExpirationDate::Days(pos!(30.0));
+            let exp = ExpirationDate::Days(Positive::THIRTY);
             let exp_book = underlying.get_or_create_expiration(exp);
             let strike = exp_book.get_or_create_strike(50000 + counter * 100);
             strike
@@ -32,7 +32,7 @@ pub fn hierarchy_operations(c: &mut Criterion) {
     // Benchmark full path lookup: underlying -> expiration -> strike
     group.bench_function("full_path_lookup", |b| {
         let manager = UnderlyingOrderBookManager::new();
-        let exp = ExpirationDate::Days(pos!(30.0));
+        let exp = ExpirationDate::Days(Positive::THIRTY);
         {
             let underlying = manager.get_or_create("BTC");
             let exp_book = underlying.get_or_create_expiration(exp);
@@ -48,7 +48,7 @@ pub fn hierarchy_operations(c: &mut Criterion) {
     // Benchmark adding orders across multiple strikes
     group.bench_function("add_orders_multi_strike", |b| {
         let manager = UnderlyingOrderBookManager::new();
-        let exp = ExpirationDate::Days(pos!(30.0));
+        let exp = ExpirationDate::Days(Positive::THIRTY);
         {
             let underlying = manager.get_or_create("BTC");
             let exp_book = underlying.get_or_create_expiration(exp);
@@ -75,7 +75,7 @@ pub fn hierarchy_operations(c: &mut Criterion) {
         for symbol in ["BTC", "ETH", "SPX"] {
             let underlying = manager.get_or_create(symbol);
             for days in [30, 60, 90] {
-                let exp = ExpirationDate::Days(pos!(days as f64));
+                let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
                 let exp_book = underlying.get_or_create_expiration(exp);
                 for strike in (40000..60000).step_by(5000) {
                     let s = exp_book.get_or_create_strike(strike);
@@ -101,7 +101,7 @@ pub fn trading_scenarios(c: &mut Criterion) {
     // Scenario: Market maker quoting multiple strikes
     group.bench_function("market_maker_quoting", |b| {
         let manager = UnderlyingOrderBookManager::new();
-        let exp = ExpirationDate::Days(pos!(30.0));
+        let exp = ExpirationDate::Days(Positive::THIRTY);
         {
             let underlying = manager.get_or_create("BTC");
             let exp_book = underlying.get_or_create_expiration(exp);
@@ -136,7 +136,7 @@ pub fn trading_scenarios(c: &mut Criterion) {
     // Scenario: Quote retrieval for risk calculation
     group.bench_function("quote_retrieval_all_strikes", |b| {
         let manager = UnderlyingOrderBookManager::new();
-        let exp = ExpirationDate::Days(pos!(30.0));
+        let exp = ExpirationDate::Days(Positive::THIRTY);
         {
             let underlying = manager.get_or_create("BTC");
             let exp_book = underlying.get_or_create_expiration(exp);
@@ -171,7 +171,7 @@ pub fn trading_scenarios(c: &mut Criterion) {
     // Scenario: ATM strike lookup and order placement
     group.bench_function("atm_order_placement", |b| {
         let manager = UnderlyingOrderBookManager::new();
-        let exp = ExpirationDate::Days(pos!(30.0));
+        let exp = ExpirationDate::Days(Positive::THIRTY);
         {
             let underlying = manager.get_or_create("BTC");
             let exp_book = underlying.get_or_create_expiration(exp);
@@ -210,7 +210,7 @@ pub fn hierarchy_scaling(c: &mut Criterion) {
                 let manager = UnderlyingOrderBookManager::new();
                 for i in 0..num_underlyings {
                     let underlying = manager.get_or_create(format!("SYM{}", i));
-                    let exp = ExpirationDate::Days(pos!(30.0));
+                    let exp = ExpirationDate::Days(Positive::THIRTY);
                     let exp_book = underlying.get_or_create_expiration(exp);
                     for strike in (40000..60000).step_by(5000) {
                         let s = exp_book.get_or_create_strike(strike);
@@ -234,7 +234,7 @@ pub fn hierarchy_scaling(c: &mut Criterion) {
             |b, &num_strikes| {
                 let manager = UnderlyingOrderBookManager::new();
                 let underlying = manager.get_or_create("BTC");
-                let exp = ExpirationDate::Days(pos!(30.0));
+                let exp = ExpirationDate::Days(Positive::THIRTY);
                 let exp_book = underlying.get_or_create_expiration(exp);
                 for i in 0..num_strikes {
                     let s = exp_book.get_or_create_strike(40000 + i * 100);
@@ -263,7 +263,7 @@ pub fn hierarchy_scaling(c: &mut Criterion) {
                 for u in 0..scale {
                     let underlying = manager.get_or_create(format!("SYM{}", u));
                     for e in 0..scale {
-                        let exp = ExpirationDate::Days(pos!((30 + e * 30) as f64));
+                        let exp = ExpirationDate::Days(pos_or_panic!((30 + e * 30) as f64));
                         let exp_book = underlying.get_or_create_expiration(exp);
                         for s in 0..(scale * 4) {
                             let strike = exp_book.get_or_create_strike(40000 + s * 1000);

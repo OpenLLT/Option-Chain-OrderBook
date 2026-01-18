@@ -6,7 +6,8 @@
 //! Run with: `cargo run --example 02_strike_orderbook`
 
 use option_chain_orderbook::orderbook::{StrikeOrderBook, StrikeOrderBookManager};
-use optionstratlib::{ExpirationDate, OptionStyle, pos};
+use optionstratlib::prelude::Positive;
+use optionstratlib::{ExpirationDate, OptionStyle};
 use orderbook_rs::{OrderId, Side};
 use tracing::info;
 
@@ -17,7 +18,7 @@ fn main() {
     info!("=== StrikeOrderBook Example ===\n");
     info!("This level manages call/put pairs at a single strike price.\n");
 
-    let expiration = ExpirationDate::Days(pos!(30.0));
+    let expiration = ExpirationDate::Days(Positive::THIRTY);
 
     // === Single Strike Order Book ===
     info!("--- Creating StrikeOrderBook ---");

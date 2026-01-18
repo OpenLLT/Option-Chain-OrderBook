@@ -17,7 +17,8 @@
 //! Run with: `cargo run --example hierarchical_orderbook`
 
 use option_chain_orderbook::orderbook::UnderlyingOrderBookManager;
-use optionstratlib::{ExpirationDate, OptionStyle, pos};
+use optionstratlib::prelude::Positive;
+use optionstratlib::{ExpirationDate, OptionStyle};
 use orderbook_rs::{OrderId, Side};
 use tracing::info;
 
@@ -33,8 +34,8 @@ fn main() {
     info!("Created UnderlyingOrderBookManager");
 
     // Define expirations
-    let exp_mar = ExpirationDate::Days(pos!(30.0));
-    let exp_jun = ExpirationDate::Days(pos!(90.0));
+    let exp_mar = ExpirationDate::Days(Positive::THIRTY);
+    let exp_jun = ExpirationDate::Days(Positive::NINETY);
 
     // ========================================
     // Create BTC option chain

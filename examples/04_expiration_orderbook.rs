@@ -6,7 +6,8 @@
 //! Run with: `cargo run --example 04_expiration_orderbook`
 
 use option_chain_orderbook::orderbook::{ExpirationOrderBook, ExpirationOrderBookManager};
-use optionstratlib::{ExpirationDate, pos};
+use optionstratlib::ExpirationDate;
+use optionstratlib::prelude::{Positive, pos_or_panic};
 use orderbook_rs::{OrderId, Side};
 use tracing::info;
 
@@ -18,7 +19,7 @@ fn main() {
     info!("=== ExpirationOrderBook Example ===\n");
     info!("This level wraps OptionChainOrderBook with expiration-specific features.\n");
 
-    let expiration = ExpirationDate::Days(pos!(30.0));
+    let expiration = ExpirationDate::Days(Positive::THIRTY);
 
     // === Single Expiration Order Book ===
     info!("--- Creating ExpirationOrderBook ---");
@@ -139,7 +140,7 @@ fn main() {
     ];
 
     for (days, name) in term_structure {
-        let exp = ExpirationDate::Days(pos!(days as f64));
+        let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
         let exp_book = manager.get_or_create(exp);
 
         // Add strikes around ATM (assume SPX at 4500)
@@ -177,7 +178,7 @@ fn main() {
 
     // === Get Specific Expiration ===
     info!("\n--- Accessing Monthly Expiration ---");
-    let exp_30 = ExpirationDate::Days(pos!(30.0));
+    let exp_30 = ExpirationDate::Days(Positive::THIRTY);
     match manager.get(&exp_30) {
         Ok(exp_book) => {
             info!("Monthly expiration found:");
@@ -190,14 +191,14 @@ fn main() {
 
     // === Contains Check ===
     info!("\n--- Contains Check ---");
-    let exp_30 = ExpirationDate::Days(pos!(30.0));
-    let exp_45 = ExpirationDate::Days(pos!(45.0));
+    let exp_30 = ExpirationDate::Days(Positive::THIRTY);
+    let exp_45 = ExpirationDate::Days(pos_or_panic!(45.0));
     info!("Contains 30-day: {}", manager.contains(&exp_30));
     info!("Contains 45-day: {}", manager.contains(&exp_45));
 
     // === Remove Expiration ===
     info!("\n--- Removing Weekly Expiration ---");
-    let exp_7 = ExpirationDate::Days(pos!(7.0));
+    let exp_7 = ExpirationDate::Days(pos_or_panic!(7.0));
     let removed = manager.remove(&exp_7);
     info!("Removed 7-day expiration: {}", removed);
     info!("Expirations after removal: {}", manager.len());

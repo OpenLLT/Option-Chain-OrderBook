@@ -6,7 +6,8 @@
 //! Run with: `cargo run --example 06_full_hierarchy`
 
 use option_chain_orderbook::orderbook::UnderlyingOrderBookManager;
-use optionstratlib::{ExpirationDate, OptionStyle, pos};
+use optionstratlib::prelude::{Positive, pos_or_panic};
+use optionstratlib::{ExpirationDate, OptionStyle};
 use orderbook_rs::{OrderId, Side};
 use tracing::info;
 
@@ -42,7 +43,7 @@ fn main() {
     // =========================================
     info!("\n\n=== Scenario 1: Market Maker Quoting ===\n");
 
-    let exp_30 = ExpirationDate::Days(pos!(30.0));
+    let exp_30 = ExpirationDate::Days(Positive::THIRTY);
 
     if let Ok(btc) = manager.get("BTC")
         && let Ok(exp_book) = btc.get_expiration(&exp_30)
@@ -177,7 +178,7 @@ fn main() {
         // Check liquidity across expirations
         info!("\nLiquidity by Expiration:");
         for days in [7, 14, 21, 30, 60, 90] {
-            let exp = ExpirationDate::Days(pos!(days as f64));
+            let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
             if let Ok(exp_book) = btc.get_expiration(&exp) {
                 info!(
                     "  {}-day: {} strikes, {} orders",
@@ -269,7 +270,7 @@ fn setup_btc_options(manager: &UnderlyingOrderBookManager) {
 
     // Weekly expirations (1-4 weeks)
     for week in 1..=4 {
-        let exp = ExpirationDate::Days(pos!((week * 7) as f64));
+        let exp = ExpirationDate::Days(pos_or_panic!((week * 7) as f64));
         let exp_book = btc.get_or_create_expiration(exp);
 
         // Strikes around 50000
@@ -294,7 +295,7 @@ fn setup_btc_options(manager: &UnderlyingOrderBookManager) {
 
     // Monthly expirations
     for month in [2, 3] {
-        let exp = ExpirationDate::Days(pos!((month * 30) as f64));
+        let exp = ExpirationDate::Days(pos_or_panic!((month * 30) as f64));
         let exp_book = btc.get_or_create_expiration(exp);
 
         // Wider strike range for longer-dated
@@ -331,7 +332,7 @@ fn setup_eth_options(manager: &UnderlyingOrderBookManager) {
 
     // Weekly and monthly expirations
     for days in [7, 14, 30, 60] {
-        let exp = ExpirationDate::Days(pos!(days as f64));
+        let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
         let exp_book = eth.get_or_create_expiration(exp);
 
         // Strikes around 3000

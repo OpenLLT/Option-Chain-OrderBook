@@ -6,7 +6,8 @@
 //! Run with: `cargo run --example 05_underlying_orderbook`
 
 use option_chain_orderbook::orderbook::{UnderlyingOrderBook, UnderlyingOrderBookManager};
-use optionstratlib::{ExpirationDate, pos};
+use optionstratlib::ExpirationDate;
+use optionstratlib::prelude::{Positive, pos_or_panic};
 use orderbook_rs::{OrderId, Side};
 use tracing::info;
 
@@ -28,7 +29,7 @@ fn main() {
 
     // Weekly expirations
     for week in 1..=4 {
-        let exp = ExpirationDate::Days(pos!((week * 7) as f64));
+        let exp = ExpirationDate::Days(pos_or_panic!((week * 7) as f64));
         let exp_book = btc.get_or_create_expiration(exp);
 
         // Add strikes around 50000
@@ -52,7 +53,7 @@ fn main() {
 
     // Monthly expirations
     for month in [2, 3, 6] {
-        let exp = ExpirationDate::Days(pos!((month * 30) as f64));
+        let exp = ExpirationDate::Days(pos_or_panic!((month * 30) as f64));
         let exp_book = btc.get_or_create_expiration(exp);
 
         // Add more strikes for longer-dated options
@@ -91,7 +92,7 @@ fn main() {
 
     // === Get Specific Expiration ===
     info!("\n--- Accessing 30-day Expiration ---");
-    let exp_30 = ExpirationDate::Days(pos!(30.0));
+    let exp_30 = ExpirationDate::Days(Positive::THIRTY);
     match btc.get_expiration(&exp_30) {
         Ok(exp_book) => {
             info!("Found 30-day expiration:");
@@ -109,14 +110,14 @@ fn main() {
 
     // === Contains Check ===
     info!("\n--- Contains Check ---");
-    let exp_7 = ExpirationDate::Days(pos!(7.0));
-    let exp_45 = ExpirationDate::Days(pos!(45.0));
+    let exp_7 = ExpirationDate::Days(pos_or_panic!(7.0));
+    let exp_45 = ExpirationDate::Days(pos_or_panic!(45.0));
     info!("Contains 7-day: {}", btc.get_expiration(&exp_7).is_ok());
     info!("Contains 45-day: {}", btc.get_expiration(&exp_45).is_ok());
 
     // === Remove Expiration ===
     info!("\n--- Removing 7-day Expiration ---");
-    let exp_7 = ExpirationDate::Days(pos!(7.0));
+    let exp_7 = ExpirationDate::Days(pos_or_panic!(7.0));
     let removed = btc.expirations().remove(&exp_7);
     info!("Removed: {}", removed);
     info!("Expiration count after removal: {}", btc.expiration_count());
@@ -136,7 +137,7 @@ fn main() {
     // Crypto underlyings
     for symbol in ["BTC", "ETH", "SOL"] {
         let underlying = manager.get_or_create(symbol);
-        let exp = ExpirationDate::Days(pos!(30.0));
+        let exp = ExpirationDate::Days(Positive::THIRTY);
         let exp_book = underlying.get_or_create_expiration(exp);
 
         // Add some strikes
@@ -159,7 +160,7 @@ fn main() {
 
         // Multiple expirations
         for days in [7, 30, 90] {
-            let exp = ExpirationDate::Days(pos!(days as f64));
+            let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
             let exp_book = underlying.get_or_create_expiration(exp);
 
             for i in 0..3 {

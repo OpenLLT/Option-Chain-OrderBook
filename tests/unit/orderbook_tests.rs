@@ -1,7 +1,8 @@
 //! Integration tests for the orderbook module.
 
 use option_chain_orderbook::orderbook::{OptionOrderBook, UnderlyingOrderBookManager};
-use optionstratlib::{ExpirationDate, OptionStyle, pos};
+use optionstratlib::prelude::pos_or_panic;
+use optionstratlib::{ExpirationDate, OptionStyle};
 use orderbook_rs::{OrderId, Side};
 
 #[test]
@@ -22,7 +23,7 @@ fn test_option_order_book_integration() {
 #[test]
 fn test_underlying_manager_integration() {
     let manager = UnderlyingOrderBookManager::new();
-    let exp_date = ExpirationDate::Days(pos!(30.0));
+    let exp_date = ExpirationDate::Days(pos_or_panic!(30.0));
 
     // Create BTC option chain
     {

@@ -2,12 +2,12 @@
 
 use criterion::{BenchmarkId, Criterion, Throughput};
 use option_chain_orderbook::orderbook::{UnderlyingOrderBook, UnderlyingOrderBookManager};
-use optionstratlib::{ExpirationDate, pos};
+use optionstratlib::prelude::{ExpirationDate, Positive, pos_or_panic};
 use orderbook_rs::{OrderId, Side};
 
 /// Creates a test expiration date.
 fn test_expiration() -> ExpirationDate {
-    ExpirationDate::Days(pos!(30.0))
+    ExpirationDate::Days(Positive::THIRTY)
 }
 
 /// Benchmarks for UnderlyingOrderBook operations.
@@ -24,7 +24,7 @@ pub fn underlying_orderbook_operations(c: &mut Criterion) {
         let underlying = UnderlyingOrderBook::new("BTC");
         let mut days = 30.0;
         b.iter(|| {
-            let exp = ExpirationDate::Days(pos!(days));
+            let exp = ExpirationDate::Days(pos_or_panic!(days));
             underlying.get_or_create_expiration(exp);
             days += 7.0;
         });
@@ -42,7 +42,7 @@ pub fn underlying_orderbook_operations(c: &mut Criterion) {
     group.bench_function("expiration_count", |b| {
         let underlying = UnderlyingOrderBook::new("BTC");
         for days in [30, 60, 90, 120, 150, 180] {
-            let exp = ExpirationDate::Days(pos!(days as f64));
+            let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
             underlying.get_or_create_expiration(exp);
         }
         b.iter(|| underlying.expiration_count());
@@ -52,7 +52,7 @@ pub fn underlying_orderbook_operations(c: &mut Criterion) {
     group.bench_function("total_strike_count", |b| {
         let underlying = UnderlyingOrderBook::new("BTC");
         for days in [30, 60, 90] {
-            let exp = ExpirationDate::Days(pos!(days as f64));
+            let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
             let exp_book = underlying.get_or_create_expiration(exp);
             for strike in (40000..60000).step_by(5000) {
                 exp_book.get_or_create_strike(strike);
@@ -65,7 +65,7 @@ pub fn underlying_orderbook_operations(c: &mut Criterion) {
     group.bench_function("total_order_count", |b| {
         let underlying = UnderlyingOrderBook::new("BTC");
         for days in [30, 60, 90] {
-            let exp = ExpirationDate::Days(pos!(days as f64));
+            let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
             let exp_book = underlying.get_or_create_expiration(exp);
             for strike in (40000..60000).step_by(5000) {
                 let s = exp_book.get_or_create_strike(strike);
@@ -81,7 +81,7 @@ pub fn underlying_orderbook_operations(c: &mut Criterion) {
     group.bench_function("stats", |b| {
         let underlying = UnderlyingOrderBook::new("BTC");
         for days in [30, 60, 90] {
-            let exp = ExpirationDate::Days(pos!(days as f64));
+            let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
             let exp_book = underlying.get_or_create_expiration(exp);
             for strike in (40000..60000).step_by(5000) {
                 let s = exp_book.get_or_create_strike(strike);
@@ -145,7 +145,7 @@ pub fn underlying_manager_operations(c: &mut Criterion) {
         for symbol in ["BTC", "ETH"] {
             let underlying = manager.get_or_create(symbol);
             for days in [30, 60] {
-                let exp = ExpirationDate::Days(pos!(days as f64));
+                let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
                 let exp_book = underlying.get_or_create_expiration(exp);
                 for strike in (40000..60000).step_by(10000) {
                     let s = exp_book.get_or_create_strike(strike);
@@ -164,7 +164,7 @@ pub fn underlying_manager_operations(c: &mut Criterion) {
         for symbol in ["BTC", "ETH"] {
             let underlying = manager.get_or_create(symbol);
             for days in [30, 60] {
-                let exp = ExpirationDate::Days(pos!(days as f64));
+                let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
                 let exp_book = underlying.get_or_create_expiration(exp);
                 for strike in (40000..60000).step_by(10000) {
                     let s = exp_book.get_or_create_strike(strike);

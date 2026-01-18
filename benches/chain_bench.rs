@@ -2,12 +2,12 @@
 
 use criterion::{BenchmarkId, Criterion, Throughput};
 use option_chain_orderbook::orderbook::{OptionChainOrderBook, OptionChainOrderBookManager};
-use optionstratlib::{ExpirationDate, pos};
+use optionstratlib::prelude::{ExpirationDate, Positive, pos_or_panic};
 use orderbook_rs::{OrderId, Side};
 
 /// Creates a test expiration date.
 fn test_expiration() -> ExpirationDate {
-    ExpirationDate::Days(pos!(30.0))
+    ExpirationDate::Days(Positive::THIRTY)
 }
 
 /// Benchmarks for OptionChainOrderBook operations.
@@ -107,7 +107,7 @@ pub fn chain_manager_operations(c: &mut Criterion) {
         let manager = OptionChainOrderBookManager::new("BTC");
         let mut days = 30.0;
         b.iter(|| {
-            let exp = ExpirationDate::Days(pos!(days));
+            let exp = ExpirationDate::Days(pos_or_panic!(days));
             manager.get_or_create(exp);
             days += 7.0;
         });
@@ -133,7 +133,7 @@ pub fn chain_manager_operations(c: &mut Criterion) {
     group.bench_function("total_order_count", |b| {
         let manager = OptionChainOrderBookManager::new("BTC");
         for days in [30, 60, 90] {
-            let exp = ExpirationDate::Days(pos!(days as f64));
+            let exp = ExpirationDate::Days(pos_or_panic!(days as f64));
             let chain = manager.get_or_create(exp);
             for strike in (40000..60000).step_by(5000) {
                 let s = chain.get_or_create_strike(strike);
@@ -163,7 +163,7 @@ pub fn chain_manager_scaling(c: &mut Criterion) {
                     || OptionChainOrderBookManager::new("BTC"),
                     |manager| {
                         for i in 0..num_expirations {
-                            let exp = ExpirationDate::Days(pos!((30 + i * 7) as f64));
+                            let exp = ExpirationDate::Days(pos_or_panic!((30 + i * 7) as f64));
                             manager.get_or_create(exp);
                         }
                     },
@@ -178,7 +178,7 @@ pub fn chain_manager_scaling(c: &mut Criterion) {
             |b, &num_expirations| {
                 let manager = OptionChainOrderBookManager::new("BTC");
                 for i in 0..num_expirations {
-                    let exp = ExpirationDate::Days(pos!((30 + i * 7) as f64));
+                    let exp = ExpirationDate::Days(pos_or_panic!((30 + i * 7) as f64));
                     let chain = manager.get_or_create(exp);
                     for strike in (40000..60000).step_by(5000) {
                         let s = chain.get_or_create_strike(strike);

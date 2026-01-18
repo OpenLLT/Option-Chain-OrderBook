@@ -270,11 +270,11 @@ impl std::fmt::Display for ExpirationManagerStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use optionstratlib::pos;
+    use optionstratlib::prelude::pos_or_panic;
     use orderbook_rs::{OrderId, Side};
 
     fn test_expiration() -> ExpirationDate {
-        ExpirationDate::Days(pos!(30.0))
+        ExpirationDate::Days(pos_or_panic!(30.0))
     }
 
     #[test]
@@ -322,9 +322,9 @@ mod tests {
     fn test_expiration_manager_get_or_create() {
         let manager = ExpirationOrderBookManager::new("BTC");
 
-        drop(manager.get_or_create(ExpirationDate::Days(pos!(30.0))));
-        drop(manager.get_or_create(ExpirationDate::Days(pos!(60.0))));
-        drop(manager.get_or_create(ExpirationDate::Days(pos!(90.0))));
+        drop(manager.get_or_create(ExpirationDate::Days(pos_or_panic!(30.0))));
+        drop(manager.get_or_create(ExpirationDate::Days(pos_or_panic!(60.0))));
+        drop(manager.get_or_create(ExpirationDate::Days(pos_or_panic!(90.0))));
 
         assert_eq!(manager.len(), 3);
     }
@@ -379,7 +379,11 @@ mod tests {
         drop(manager.get_or_create(exp));
 
         assert!(manager.get(&exp).is_ok());
-        assert!(manager.get(&ExpirationDate::Days(pos!(999.0))).is_err());
+        assert!(
+            manager
+                .get(&ExpirationDate::Days(pos_or_panic!(999.0)))
+                .is_err()
+        );
     }
 
     #[test]
@@ -390,7 +394,7 @@ mod tests {
         drop(manager.get_or_create(exp));
 
         assert!(manager.contains(&exp));
-        assert!(!manager.contains(&ExpirationDate::Days(pos!(999.0))));
+        assert!(!manager.contains(&ExpirationDate::Days(pos_or_panic!(999.0))));
     }
 
     #[test]

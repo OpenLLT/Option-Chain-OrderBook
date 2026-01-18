@@ -81,11 +81,12 @@
 //!
 //! ```rust
 //! use option_chain_orderbook::orderbook::UnderlyingOrderBookManager;
-//! use optionstratlib::{pos, ExpirationDate};
+//! use optionstratlib::prelude::pos_or_panic;
+//! use optionstratlib::ExpirationDate;
 //! use orderbook_rs::{OrderId, Side};
 //!
 //! let manager = UnderlyingOrderBookManager::new();
-//! let exp_date = ExpirationDate::Days(pos!(30.0));
+//! let exp_date = ExpirationDate::Days(pos_or_panic!(30.0));
 //!
 //! // Create BTC option chain (use block to drop guards)
 //! {
@@ -128,7 +129,8 @@
 //! ### Using OptionStratLib for Greeks
 //!
 //! ```rust,ignore
-//! use optionstratlib::{Options, ExpirationDate, pos};
+//! use optionstratlib::prelude::pos_or_panic;
+//! use optionstratlib::{Options, ExpirationDate};
 //! use optionstratlib::model::types::{OptionStyle, OptionType, Side};
 //! use optionstratlib::greeks::{delta, gamma, theta, vega, rho};
 //! use rust_decimal_macros::dec;
@@ -137,14 +139,14 @@
 //!     option_type: OptionType::European,
 //!     side: Side::Long,
 //!     underlying_symbol: "BTC".to_string(),
-//!     strike_price: pos!(50000.0),
-//!     expiration_date: ExpirationDate::Days(pos!(30.0)),
-//!     implied_volatility: pos!(0.6),
-//!     quantity: pos!(1.0),
-//!     underlying_price: pos!(48000.0),
+//!     strike_price: pos_or_panic!(50000.0),
+//!     expiration_date: ExpirationDate::Days(pos_or_panic!(30.0)),
+//!     implied_volatility: pos_or_panic!(0.6),
+//!     quantity: pos_or_panic!(1.0),
+//!     underlying_price: pos_or_panic!(48000.0),
 //!     risk_free_rate: dec!(0.05),
 //!     option_style: OptionStyle::Call,
-//!     dividend_yield: pos!(0.0),
+//!     dividend_yield: pos_or_panic!(0.0),
 //!     exotic_params: None,
 //! };
 //!

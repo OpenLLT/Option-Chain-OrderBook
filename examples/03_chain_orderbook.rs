@@ -6,7 +6,8 @@
 //! Run with: `cargo run --example 03_chain_orderbook`
 
 use option_chain_orderbook::orderbook::{OptionChainOrderBook, OptionChainOrderBookManager};
-use optionstratlib::{ExpirationDate, pos};
+use optionstratlib::ExpirationDate;
+use optionstratlib::prelude::{Positive, pos_or_panic};
 use orderbook_rs::{OrderId, Side};
 use tracing::info;
 
@@ -17,7 +18,7 @@ fn main() {
     info!("=== OptionChainOrderBook Example ===\n");
     info!("This level manages all strikes for a single expiration.\n");
 
-    let expiration = ExpirationDate::Days(pos!(30.0));
+    let expiration = ExpirationDate::Days(Positive::THIRTY);
 
     // === Single Option Chain ===
     info!("--- Creating OptionChainOrderBook ---");
@@ -120,11 +121,11 @@ fn main() {
     // === Creating Multiple Expirations ===
     info!("\n--- Creating Multiple Expirations ---");
     let expirations = [
-        ExpirationDate::Days(pos!(7.0)),  // Weekly
-        ExpirationDate::Days(pos!(14.0)), // Bi-weekly
-        ExpirationDate::Days(pos!(30.0)), // Monthly
-        ExpirationDate::Days(pos!(60.0)), // Bi-monthly
-        ExpirationDate::Days(pos!(90.0)), // Quarterly
+        ExpirationDate::Days(Positive::SEVEN),     // Weekly
+        ExpirationDate::Days(pos_or_panic!(14.0)), // Bi-weekly
+        ExpirationDate::Days(Positive::THIRTY),    // Monthly
+        ExpirationDate::Days(Positive::SIXTY),     // Bi-monthly
+        ExpirationDate::Days(Positive::NINETY),    // Quarterly
     ];
 
     for exp in &expirations {
@@ -151,7 +152,7 @@ fn main() {
 
     // === Get Specific Expiration ===
     info!("\n--- Accessing Specific Expiration ---");
-    let exp_30 = ExpirationDate::Days(pos!(30.0));
+    let exp_30 = ExpirationDate::Days(Positive::THIRTY);
     match manager.get(&exp_30) {
         Ok(chain) => {
             info!("Found 30-day expiration:");
@@ -163,14 +164,14 @@ fn main() {
 
     // === Contains Check ===
     info!("\n--- Contains Check ---");
-    let exp_30 = ExpirationDate::Days(pos!(30.0));
-    let exp_365 = ExpirationDate::Days(pos!(365.0));
+    let exp_30 = ExpirationDate::Days(Positive::THIRTY);
+    let exp_365 = ExpirationDate::Days(pos_or_panic!(365.0));
     info!("Contains 30-day: {}", manager.contains(&exp_30));
     info!("Contains 365-day: {}", manager.contains(&exp_365));
 
     // === Remove Expiration ===
     info!("\n--- Removing Expiration ---");
-    let exp_7 = ExpirationDate::Days(pos!(7.0));
+    let exp_7 = ExpirationDate::Days(Positive::SEVEN);
     let removed = manager.remove(&exp_7);
     info!("Removed 7-day expiration: {}", removed);
     info!("Expirations after removal: {}", manager.len());

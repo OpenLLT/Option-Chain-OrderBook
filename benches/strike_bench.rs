@@ -2,12 +2,13 @@
 
 use criterion::{BenchmarkId, Criterion, Throughput};
 use option_chain_orderbook::orderbook::{StrikeOrderBook, StrikeOrderBookManager};
-use optionstratlib::{ExpirationDate, pos};
+use optionstratlib::ExpirationDate;
+use optionstratlib::prelude::Positive;
 use orderbook_rs::{OrderId, Side};
 
 /// Creates a test expiration date.
 fn test_expiration() -> ExpirationDate {
-    ExpirationDate::Days(pos!(30.0))
+    ExpirationDate::Days(Positive::THIRTY)
 }
 
 /// Benchmarks for StrikeOrderBook operations.
